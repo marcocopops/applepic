@@ -2,7 +2,9 @@
 
 The gripper sits `offset` m ahead of the base on its x axis, so it reaches the target when the
 robot faces the target at a distance `offset`. The robot rotates in place until roughly aligned,
-then creeps forward (steering) and stops `offset` m short; it backs up if it overshot.
+then creeps forward (steering) and stops `offset` m short; it backs up if it overshot. A target
+beside or under the chassis is first driven away from: rotating over it would run the front caster
+onto the apple (the squeezed apple gets launched by the physics engine).
 """
 import math
 from dataclasses import dataclass
@@ -20,6 +22,8 @@ class ApproachParams:
     k_angular: float = 2.0         # 1/s
     rotate_threshold: float = 0.2  # rad: above this, rotate in place
     tolerance: float = 0.03        # m, gripper-to-target distance considered reached
+    turn_clearance: float = 0.1    # m, beyond `offset`, needed to rotate in place toward a target
+    backup_linear: float = 0.15    # m/s, backing away from a target too close to turn toward
 
 
 def _clip(v, limit):
@@ -45,6 +49,10 @@ def approach_command(x, y, yaw, tx, ty, params=ApproachParams()):
         return -params.min_linear, 0.0, False
     angular = _clip(params.k_angular * err, params.max_angular)
     if abs(err) > params.rotate_threshold:
+        if dist < params.offset + params.turn_clearance:
+            # Too close to turn toward: drive straight away from it first (backward if it is in
+            # front of the base, forward if behind).
+            return math.copysign(params.backup_linear, -math.cos(err)), 0.0, False
         return 0.0, angular, False
     speed = min(params.max_linear, params.k_linear * abs(along))
     speed = max(speed, params.min_linear)
