@@ -75,3 +75,24 @@
   attachée resterait visible devant la caméra), position estimée par la caméra pour déclencher
   (la vérité terrain simule un capteur de contact du préhenseur), `ros_gz_sim remove`/`delete_entity`
   en sous-processus (lent, et `remove` boucle s'il ne trouve pas de monde).
+
+## D8 — Machine à états de mission pure + motif de recherche en cercle (session 7)
+- Contexte : M6, enchaîner arbres, recherche, ramassage, dépôt et vidage ; transitions testables sans ROS.
+- Décision : classe pure `applepic_mission.mission.Mission` (états GOTO_TREE, SEARCH, PICK, GOTO_BASE,
+  UNLOAD, DONE) qui reçoit des événements (`on_detections`, `on_picked`, `on_basket_full`,
+  `on_unloaded`) et renvoie la commande vitesse à chaque `step(pose, t)` ; le nœud `mission` n'est
+  qu'un adaptateur ROS (il remplace `apple_picker`, gardé pour la démo M5).
+  - SEARCH : 8 points sur un cercle de 2,2 m autour du tronc (départ au plus proche du robot), à
+    chacun le robot se tourne vers le tronc et regarde 1,5 s ; le champ caméra (0,4–2,3 m devant)
+    couvre alors l'anneau de pommes (0,45–1,6 m) côté robot. Déplacements entre points en gardant
+    1,9 m du tronc (le châssis ne roule pas sur l'anneau).
+  - PICK : pomme confirmée (`AppleTracker`, 2 vues) à < 1,9 m du tronc courant, la plus proche, et
+    seulement si l'approche en ligne droite garde la base à ≥ 0,45 m de l'axe du tronc (arrêt à
+    ≥ 0,5 m) ; sinon elle sera prise depuis un autre point du cercle. Après chaque ramassage, le
+    robot revient au point de recherche courant et regarde à nouveau.
+  - Un ramassage signalé sur `/basket/picked` est associé à la piste la plus proche du préhenseur
+    (gère les pommes ramassées « en passant »).
+  - Panier plein → GOTO_BASE puis retour au même arbre (recherche recommencée) ; fin de boucle →
+    GOTO_BASE → UNLOAD → nouvelle boucle ou DONE (`loops`, 0 = infini).
+- Écarté : Nav2/BehaviorTree (non installé, surdimensionné), spirale ou rotation sur place depuis
+  l'arbre (plus de risque d'écraser les pommes), SMACH/YASMIN (dépendance de plus pour 6 états).

@@ -81,17 +81,31 @@
   5 cm, pomme haute de 8 cm) peut pousser des pommes situées sur les côtés du chemin ; ramassage
   automatique dès qu'une pomme passe sous le préhenseur, même en transit (voulu).
 
-## Prochaine tâche : M6 — Machine à états de mission
-- Module pur `applepic_mission/mission.py` : états GOTO_TREE → SEARCH → PICK → (arbre suivant) ;
-  fin de boucle → GOTO_BASE → UNLOAD → nouvelle boucle ; panier plein → GOTO_BASE prioritaire puis
-  retour à l'arbre en cours. Transitions pilotées par des événements (arrivé, pomme confirmée, ramassée,
-  échec, recherche terminée, panier plein) et testées unitairement sans ROS.
-- SEARCH : motif de points autour de l'arbre (ex. 8 points sur un cercle de rayon ~2,2 m, robot
-  orienté vers le tronc pour voir l'anneau de pommes 0,45–1,6 m ; ou rotation sur place à chaque point),
-  rayon configurable ; dès qu'une pomme confirmée est dans le rayon de l'arbre → PICK (réutiliser
-  `AppleTracker` + `approach_command`), puis reprendre la recherche ; fin quand tout le motif est fait
-  sans nouvelle pomme. Attention aux troncs : ne jamais viser un point à < ~0,5 m du tronc (pommes à
-  ≥ 0,45 m : approche par l'extérieur).
-- Nœud `mission` qui remplace `apple_picker` (réutilise `gripper`), route de `applepic_navigation.route`
-  pour GOTO_TREE/GOTO_BASE, appel `/basket/unload` dans la zone de dépôt. Launch `mission.launch.py`.
-- Vérif : une boucle complète headless, compter les pommes ramassées/déposées (préparer M7).
+## Session 7 (2026-10-26)
+- M6 fait : machine à états pure `applepic_mission/mission.py` (GOTO_TREE → SEARCH → PICK → SEARCH …
+  → arbre suivant ; fin de boucle → GOTO_BASE → UNLOAD → nouvelle boucle / DONE ; panier plein →
+  GOTO_BASE → UNLOAD → retour au même arbre). SEARCH = 8 points sur un cercle de 2,2 m autour du tronc,
+  face au tronc, 1,5 s d'observation ; PICK = pomme confirmée la plus proche à < 1,9 m du tronc dont
+  l'approche droite reste à ≥ 0,45 m du tronc. Nœud `mission` (remplace `apple_picker`, réutilise
+  `gripper`) : `/mission/state`, `/mission/status`, `/mission/stats` (JSON : ramassées, déposées,
+  échecs, distance, durée), param `trajectory_csv`, `exit_when_done`. Launch
+  `applepic_bringup/launch/mission.launch.py` (args `headless`, `x`, `y`, `yaw`, `capacity`, `loops`,
+  `search_radius`, `trajectory_csv`). `route.plan_path` (détours) exposé pour la mission.
+  - Vérifié : `scripts/check_mission.sh` (+ `scripts/eval_mission.py`) → une boucle complète headless
+    depuis le dépôt : **29/29 pommes ramassées et déposées**, 0 échec, 2 retours « panier plein »
+    (capacité 10) + dépôt final, état DONE, 0 modèle `apple_*` restant dans gz ; 888 s simulées
+    (~900 s réelles), 208 m parcourus, distance min. aux troncs 0,75 m. Tracé
+    `artifacts/mission_trajectory.png`, métriques `artifacts/mission_metrics.json`.
+  - `make test` : 65 tests, 0 échec (12 tests mission : transitions unitaires + 3 simulations
+    unicycle complètes avec faux détecteur/préhenseur, dont le verger généré).
+- Limites : une boucle prend ~15 min (8 points par arbre même sans pomme restante) ; pas d'évitement
+  d'obstacles autre que les troncs connus ; un double SIGINT à l'arrêt affiche une trace
+  KeyboardInterrupt bénigne du nœud `mission`.
+
+## Prochaine tâche : M7 — Test de bout en bout chronométré
+- Partir de `scripts/check_mission.sh` / `eval_mission.py` (métriques déjà sorties en JSON) : en faire
+  le scénario M7 officiel (`make e2e` ?), seuil X % configurable, durée limite simulée, sortie
+  `artifacts/e2e_metrics.json` + tracé avec les pommes du manifeste (ramassées / restantes).
+- Éventuellement accélérer : `look_time` plus court, sauter les points de recherche déjà couverts,
+  RTF > 1 si possible en headless.
+- Puis M8 : launch démo GUI Gazebo + RViz (config RViz : robot, caméra, détections, trajectoire).

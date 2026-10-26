@@ -23,6 +23,9 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `ros2 launch applepic_bringup perception.launch.py x:=2.6 y:=4.0` : simu + `apple_detector` (`/apples/detections`, `/apples/debug_image`)
 - `scripts/check_picking.sh [x y yaw min timeout capacity]` : ramassage headless (detector + gripper + apple_picker), recoupe `/basket/*` et `gz model --list`
 - `ros2 launch applepic_bringup picking.launch.py x:=9.6 y:=9.5 yaw:=1.57 [capacity:=10]` : simu + détection + ramassage
+- `scripts/check_mission.sh [min_ratio timeout capacity]` : mission complète headless (~15 min), métriques
+  `artifacts/mission_metrics.json`, tracé `artifacts/mission_trajectory.png`
+- `ros2 launch applepic_bringup mission.launch.py [headless:=false capacity:=10 loops:=1]` : simu + détection + mission
 - `ros2 launch applepic_bringup navigation.launch.py loops:=1 [headless:=false]` : simu + suivi de boucle
 - `scripts/capture_camera.py out.png` : sauve une image de `/camera/image_raw` (simu lancée)
 - Arrêter une simu lancée en arrière-plan : par PGID (`set -m` puis `kill -INT -- -$PID`), jamais par motif.
@@ -36,7 +39,8 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `src/applepic_perception` : `detector.py` (HSV), `projection.py` (pixel→sol), nœud `apple_detector`
 - `src/applepic_mission` : `basket.py`, `picking.py`, `apple_tracker.py` (fusion des détections), `approach.py`
   (préhenseur → point), nœuds `gripper` (ramassage magique via gz-transport Python : `/basket/count|full|picked`,
-  srv `/basket/unload`) et `apple_picker` ; machine à états de mission à venir (M6)
+  srv `/basket/unload`), `apple_picker` (démo M5), `mission.py` (machine à états pure) et nœud `mission`
+  (`/mission/state|status|stats`)
 - `src/applepic_bringup` : launch files de haut niveau
 Tous les paquets sont `ament_python`. La logique pure (sans rclpy) est dans des modules
 séparés testables par pytest sans ROS lancé.

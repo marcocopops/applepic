@@ -18,6 +18,10 @@
   du monde quand le préhenseur passe dessus), compteur et capacité du panier, vidage par service ;
   vérifié en headless par `scripts/check_picking.sh` (arbre 0 : 2/2 pommes visibles, arbre 4 : 4/4,
   modèles bien supprimés de Gazebo, panier plein → arrêt, vidage → reprise).
+- M6 : **la mission complète tourne seule** : pour chaque pommier, le robot fait le tour (8 points
+  à 2,2 m, face au tronc), ramasse les pommes vues, passe à l'arbre suivant ; panier plein → dépôt,
+  vidage, retour à l'arbre ; fin de boucle → dépôt. Vérifié en headless par `scripts/check_mission.sh` :
+  29/29 pommes ramassées et déposées en ~15 min simulées, 208 m (`artifacts/mission_trajectory.png`).
 
 ## 2. Lancer
 ```bash
@@ -37,8 +41,11 @@ scripts/check_perception.sh   # test automatique headless de la détection
 ros2 launch applepic_bringup picking.launch.py headless:=false x:=9.6 y:=9.5 yaw:=1.57   # ramassage
 ros2 topic echo /basket/count   # compteur du panier (autre terminal)
 scripts/check_picking.sh   # test automatique headless du ramassage
+ros2 launch applepic_bringup mission.launch.py headless:=false   # MISSION COMPLÈTE (GUI)
+ros2 topic echo /mission/status   # transitions de la mission (autre terminal)
+scripts/check_mission.sh   # test automatique headless de la mission (~15 min)
 ```
-(la démo complète arrivera au jalon M8)
+(la démo avec RViz arrivera au jalon M8)
 
 ## 3. Décisions à relire
 - D1 : environnement natif plutôt que Docker (voir `docs/DECISIONS.md`).
@@ -49,10 +56,12 @@ scripts/check_picking.sh   # test automatique headless du ramassage
 - D6 : perception HSV + projection sur sol plat ; publication brute des pommes vues (pas de suivi).
 - D7 : ramassage = suppression du modèle de pomme quand le préhenseur est à < 7 cm (pose vérité
   terrain des pommes, comme un capteur de contact) ; ramassage automatique même en transit.
+- D8 : machine à états maison (pas de BehaviorTree) ; recherche en cercle de 8 points autour de
+  chaque arbre ; le robot ne vise une pomme que si son trajet reste à ≥ 0,45 m du tronc.
 
 ## 4. Cassé / bloqué
 - Rien pour l'instant. Voir `docs/TODO_HUMAIN.md` (optionnel).
 
 ## 5. Prochaines étapes
-- M6 machine à états de mission (aller à l'arbre, chercher autour, ramasser, arbre suivant, dépôt),
-  puis M7 test de bout en bout chronométré et M8 démo avec GUI.
+- M7 test de bout en bout chronométré (base : `scripts/check_mission.sh`), puis M8 démo GUI + RViz.
+- Accélérer la mission (une boucle ≈ 15 min : beaucoup de temps passé à regarder des zones vides).
