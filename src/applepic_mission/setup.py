@@ -32,6 +32,7 @@ setup(
             'gripper = applepic_mission.gripper:main',
             'apple_picker = applepic_mission.apple_picker:main',
             'mission = applepic_mission.mission_node:main',
+            'mission_viz = applepic_mission.mission_viz:main',
         ],
     },
 )

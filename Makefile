@@ -9,6 +9,7 @@ SIM_SECONDS ?= 20
 E2E_MIN_RATIO ?= 0.8
 E2E_SIM_LIMIT ?= 1200
 E2E_RTF ?= 3
+DEMO_RTF ?= 1
 
 ifeq ($(USE_DOCKER),1)
 RUN = docker run --rm --net=host -v $(CURDIR):/ws -w /ws $(IMAGE) bash -c
@@ -18,7 +19,7 @@ endif
 
 SETUP = source /opt/ros/$(ROS_DISTRO)/setup.bash && { [ -f install/setup.bash ] && source install/setup.bash || true; }
 
-.PHONY: build test e2e sim-headless world docker-image clean
+.PHONY: build test e2e demo sim-headless world docker-image clean
 
 build:
 	$(RUN) 'source /opt/ros/$(ROS_DISTRO)/setup.bash && colcon build --symlink-install'
@@ -29,6 +30,10 @@ test: build
 # M7 end-to-end scenario (~5 min wall at RTF 3): metrics in artifacts/e2e_metrics.json.
 e2e: build
 	$(RUN) 'scripts/e2e_mission.sh $(E2E_MIN_RATIO) $(E2E_SIM_LIMIT) $(E2E_RTF)'
+
+# M8 demo: full mission with the Gazebo GUI + RViz (needs a display, native only).
+demo: build
+	$(SETUP) && ros2 launch applepic_bringup demo.launch.py rtf:=$(DEMO_RTF)
 
 world:
 	$(RUN) '$(SETUP) && ros2 run applepic_gazebo generate_world --config src/applepic_gazebo/config/orchard.yaml --output src/applepic_gazebo/worlds/orchard.sdf'

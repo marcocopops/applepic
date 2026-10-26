@@ -12,6 +12,7 @@
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>applepic_navigation</exec_depend>
   <!-- gz-transport Python bindings (python3-gz-transport13, shipped with gz Harmonic) -->
 
