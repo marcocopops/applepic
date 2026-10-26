@@ -39,7 +39,7 @@ class MissionViz(Node):
         default_cfg = os.path.join(
             get_package_share_directory('applepic_gazebo'), 'config', 'orchard.yaml')
         self.declare_parameter('orchard_config', default_cfg)
-        self.declare_parameter('search_radius', 2.2)
+        self.declare_parameter('search_radius', 2.0)
         self.declare_parameter('capacity', 0)
         self.declare_parameter('frame', 'odom')
         gp = self.get_parameter

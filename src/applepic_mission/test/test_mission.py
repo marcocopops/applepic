@@ -3,6 +3,7 @@ import math
 import pytest
 
 from applepic_mission.basket import Basket
+from applepic_mission.coverage import CameraParams, camera_footprint, point_in_convex
 from applepic_mission.mission import (
     DONE, GOTO_BASE, GOTO_TREE, PICK, SEARCH, UNLOAD, Mission, MissionParams)
 from applepic_mission.picking import apple_in_reach, gripper_position
@@ -35,7 +36,7 @@ def test_starts_going_to_closest_search_point_of_first_tree():
     v, w = m.step((0.0, 0.0, 0.0), 0.0)
     assert m.state == GOTO_TREE and m.tree == 0
     goal = m.path[-1]
-    assert math.dist(goal, TREES[0]) == pytest.approx(2.2)
+    assert math.dist(goal, TREES[0]) == pytest.approx(m.p.search_radius)
     assert goal == m.search_point(0, 5)   # 225 deg: the side facing the depot
 
 
@@ -54,7 +55,7 @@ def test_arrival_starts_search_then_faces_and_looks():
 
 
 def test_confirmed_apple_near_tree_triggers_pick_then_resumes_search():
-    m = make_mission()
+    m = make_mission(coverage=False)
     x, y, yaw = at_search_point(m)       # index 4: west of the trunk, facing east
     apple = (TREES[0][0] - 1.0, TREES[0][1] + 0.2)
     confirm(m, apple, n=1)
@@ -118,8 +119,7 @@ def test_end_of_loop_goes_to_base_then_done():
         if m.path:                       # teleport along the planned path
             pose = (*m.path[0], pose[2])
         elif m.state == SEARCH and m.phase == 'face':
-            tx, ty = TREES[m.tree]
-            pose = (pose[0], pose[1], math.atan2(ty - pose[1], tx - pose[0]))
+            pose = (pose[0], pose[1], m.order[m.k][2])
         m.step(pose, t)
         t += 0.1
     assert m.state == GOTO_BASE and not m.resume_tree
@@ -136,6 +136,62 @@ def test_end_of_loop_goes_to_base_then_done():
     assert m.step((0.0, 0.0, 0.0), t + 1.0) == (0.0, 0.0)
 
 
+def cover_all(m, tree=0):
+    grid = m.grid(tree)
+    grid.seen = [True] * len(grid.cells)
+
+
+def test_covered_tree_is_left_right_after_arrival():
+    m = make_mission()
+    m.step((0.0, 0.0, 0.0), 0.0)
+    cover_all(m)
+    x, y = m.path[-1]
+    m.step((x, y, 0.0), 0.1)                 # arrival at tree 0: nothing left to see
+    assert m.state == GOTO_TREE and m.tree == 1
+    assert [s for s, _, _ in m.stats.transitions] == [GOTO_TREE, SEARCH, GOTO_TREE]
+
+
+def test_known_apple_keeps_the_search_going_despite_coverage():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)           # west of the trunk
+    m.on_detections([(4.5, 4.0)], 0.1)       # seen once, behind the trunk
+    cover_all(m)
+    m.step((x, y, yaw), 0.2)
+    m.step((x, y, yaw), 1.5)                 # look over
+    assert m.state == SEARCH and m.tree == 0 and m.k == 1
+
+
+def test_search_points_already_seen_are_skipped():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)           # order: 4, 5, 6, ...
+    m.grid(0).mark(m.order[1])               # the next point has nothing new to show
+    m.step((x, y, yaw), 0.2)
+    m.step((x, y, yaw), 1.5)
+    assert m.state == SEARCH and m.k == 2 and m.phase == 'move'
+    assert m.path[-1] == pytest.approx(m.search_point(0, 6))
+
+
+def test_fill_in_view_added_when_circle_done_but_ground_unseen():
+    m = make_mission(search_points=1)
+    x, y, yaw = at_search_point(m, index=0)
+    m.step((x, y, yaw), 0.2)
+    m.step((x, y, yaw), 1.5)                 # single point looked at: ground mostly unseen
+    assert m.state == SEARCH and m.tree == 0 and m.fill_ins == 1 and m.k == 1
+    fx, fy, fyaw = m.order[1]
+    assert math.dist((fx, fy), TREES[0]) == pytest.approx(m.p.search_radius)
+    assert m.grid(0).gain(m.order[1]) >= m.p.fill_in_gain
+
+
+def test_coverage_resets_on_a_new_loop():
+    m = make_mission(loops=2)
+    m.step((0.0, 0.0, 0.0), 0.0)
+    cover_all(m)
+    m._enter_goto_base(resume=False)
+    m.step((0.0, 0.0, 0.0), 0.1)
+    m.on_unloaded(0)
+    assert m.state == GOTO_TREE and m.grid(0).fraction == 0.0
+
+
 def test_new_loop_when_loops_not_reached():
     m = make_mission(loops=2)
     m.step((0.0, 0.0, 0.0), 0.0)
@@ -145,18 +201,20 @@ def test_new_loop_when_loops_not_reached():
     assert m.state == GOTO_TREE and m.tree == 0 and m.stats.loops_done == 1
 
 
+# Fake detector: the real camera footprint, a bit larger than the one the mission plans with.
+FOOTPRINT = camera_footprint(CameraParams(margin=0.95))
+
+
 def _visible(pose, apple):
-    """Crude camera footprint: 0.4-2.3 m ahead, widening with distance."""
     x, y, yaw = pose
     dx, dy = apple[0] - x, apple[1] - y
-    fwd = dx * math.cos(yaw) + dy * math.sin(yaw)
-    lat = -dx * math.sin(yaw) + dy * math.cos(yaw)
-    return 0.4 <= fwd <= 2.3 and abs(lat) <= 0.6 * (fwd + 0.3)
+    return point_in_convex(FOOTPRINT, dx * math.cos(yaw) + dy * math.sin(yaw),
+                           -dx * math.sin(yaw) + dy * math.cos(yaw))
 
 
-def run_world(apples, trees=TREES, capacity=10, max_time=1500.0, dt=0.1):
+def run_world(apples, trees=TREES, capacity=10, max_time=1500.0, dt=0.1, **params):
     """Unicycle robot + fake detector + magic gripper driven by the mission until DONE."""
-    m = Mission(trees, DEPOT, MissionParams(loops=1))
+    m = Mission(trees, DEPOT, MissionParams(loops=1, **params))
     basket = Basket(capacity)
     remaining = dict(apples)
     pose, t, dist, min_trunk = (0.0, 0.0, 0.0), 0.0, 0.0, math.inf
@@ -224,3 +282,14 @@ def test_full_mission_on_generated_orchard():
     assert m.state == DONE, f'stuck in {m.state} at t={t:.0f}'
     assert not remaining and basket.total_unloaded == len(apples)
     assert min_trunk > 0.44
+
+
+def test_coverage_search_is_faster_and_misses_nothing():
+    trees = [(4.0, 4.0), (10.0, 4.0), (10.0, 10.0)]
+    for seed in range(3):
+        apples = ring_apples(trees, per_tree=6, seed=seed)
+        fast = run_world(apples, trees=trees, capacity=20)
+        slow = run_world(apples, trees=trees, capacity=20, coverage=False)
+        for m, _, remaining, t, _ in (fast, slow):
+            assert m.state == DONE and not remaining, f'seed {seed}: {len(remaining)} left'
+        assert fast[3] < 0.85 * slow[3], f'seed {seed}: {fast[3]:.0f} s vs {slow[3]:.0f} s'
