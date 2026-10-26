@@ -24,7 +24,7 @@ test: build
 	$(RUN) '$(SETUP) && colcon test --return-code-on-test-failure --event-handlers console_direct- && colcon test-result --verbose'
 
 world:
-	$(RUN) '$(SETUP) && ros2 run applepic_gazebo generate_world'
+	$(RUN) '$(SETUP) && ros2 run applepic_gazebo generate_world --config src/applepic_gazebo/config/orchard.yaml --output src/applepic_gazebo/worlds/orchard.sdf'
 
 sim-headless: build
 	$(RUN) '$(SETUP) && timeout $(SIM_SECONDS) ros2 launch applepic_bringup sim.launch.py headless:=true || [ $$? -eq 124 ]'

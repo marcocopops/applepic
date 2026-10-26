@@ -1,0 +1,38 @@
+# Orchard layout for world generation (all positions in world frame, metres).
+# Trees are visited in list order; the loop closes back on the first tree.
+world_name: orchard
+seed: 42
+
+ground:
+  center: [8.0, 6.0]
+  size: [40.0, 30.0]
+
+depot:
+  position: [0.0, 0.0]
+  size: [1.5, 1.5]
+
+# Map origin for the (later) simulated GPS: somewhere in Normandy.
+spherical_coordinates:
+  latitude_deg: 49.18
+  longitude_deg: -0.37
+  elevation: 50.0
+
+tree:
+  trunk_radius: 0.10
+  trunk_height: 1.6
+  canopy_radius: 1.1
+
+apples:
+  per_tree: [4, 7]          # inclusive range, drawn per tree
+  ring: [0.45, 1.6]         # min/max distance from the trunk axis
+  min_spacing: 0.15         # min distance between two apples
+  radius: 0.04
+  mass: 0.15
+
+trees:
+  - [4.0, 4.0]
+  - [10.0, 4.0]
+  - [16.0, 4.0]
+  - [16.0, 10.0]
+  - [10.0, 10.0]
+  - [4.0, 10.0]

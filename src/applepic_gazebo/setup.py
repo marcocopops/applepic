@@ -30,6 +30,8 @@ setup(
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'generate_world = applepic_gazebo.generate_world:main',
+        ],
     },
 )
