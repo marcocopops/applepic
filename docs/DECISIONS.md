@@ -25,3 +25,12 @@
   ramassage magique), Sensors ogre2, Imu, NavSat + `spherical_coordinates` (pour le GPS du M9).
 - Écarté : pommes statiques (irréaliste si le robot les touche), modèles Fuel (téléchargement réseau,
   inutile pour HSV), herbe texturée (le vert uni suffit à la segmentation).
+
+## D4 — Robot et odométrie (session 3)
+- Contexte : M2, navigation en coordonnées monde d'abord.
+- Décision : `/odom` = OdometryPublisher gz (pose vérité terrain, repère `odom` ≡ monde, vérifié avec un
+  spawn hors origine) ; l'odométrie des roues du DiffDrive est publiée à part sur `/wheel_odom` (TF non
+  bridgée) pour le futur robot_localization. Caméra montée à 0,50 m, tilt 0,85 rad (~49°), HFOV 1,3 rad :
+  voit le sol d'environ 0,2 à 2,5 m devant ; le préhenseur apparaît en bas de l'image.
+  Préhenseur = simple frame `gripper_link` (le ramassage magique M5 se basera sur sa distance aux pommes).
+- Écarté : roues + gz_ros2_control (inutile pour un POC), panier physique avec collisions.

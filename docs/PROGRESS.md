@@ -15,10 +15,27 @@
   - `make test` : 12 tests, 0 échec (6 tests du générateur).
 - Remarque : `run_applepic.sh` a une modif locale non commitée faite par l'humain ; laissée telle quelle.
 
-## Prochaine tâche : M2 — Robot
-- `applepic_description/urdf/applepic.urdf.xacro` : base diff ~0,60 x 0,45 m, 2 roues motrices + roulette,
-  caméra avant inclinée vers le sol (~0,5 m de haut, tilt ~45°), panier (visuel), préhenseur (link avant bas).
-- Plugins gz : DiffDrive (`/cmd_vel`), OdometryPublisher ou odom du DiffDrive, JointStatePublisher, caméra.
-- Bridge ros_gz (`applepic_gazebo/config/bridge.yaml`), launch `applepic_bringup/launch/sim.launch.py`
-  (monde orchard + spawn robot au dépôt + robot_state_publisher + bridge), utilisé par `make sim-headless`.
-- Vérifier : publier `cmd_vel`, voir `odom` évoluer ; sauver une image caméra robot en PNG.
+## Session 3 (2026-10-26)
+- M2 fait : `applepic_description/urdf/applepic.urdf.xacro` (base 0,60 x 0,45 m, roues r=0,10 m,
+  écart 0,52 m, roulette avant sans frottement, caméra à 0,50 m inclinée de 0,85 rad, 640x480 @ 10 Hz,
+  panier visuel, `gripper_link` à x=0,46 m / z=0,04 m de `base_footprint`). Plugins gz : DiffDrive
+  (`/cmd_vel`, odom roues sur `/wheel_odom`), OdometryPublisher (vérité terrain `/odom` + `/tf`),
+  JointStatePublisher, caméra. Bridge `applepic_gazebo/config/bridge.yaml`, launch
+  `applepic_bringup/launch/sim.launch.py` (args `headless`, `world`, `x`, `y`, `yaw`).
+  - Vérifié : `scripts/check_drive.sh` → 3 s à 0,5 m/s, `/odom` x : 0 → 1,46 m ; images caméra
+    `artifacts/robot_camera_{start,end}.png` (sol + préhenseur visibles).
+  - Vérifié : spawn en (2,6 ; 4,0) → `/odom` = (2,6 ; 4,0) : **`/odom` est en repère monde** (frame `odom`
+    ≡ monde). TF `odom → camera_optical_frame` complète ; image `frame_id` = `camera_optical_frame`.
+    Capture `artifacts/robot_camera_tree0.png` : tronc + 2 pommes rouges bien visibles.
+  - `make test` : 17 tests, 0 échec (5 tests URDF). `make sim-headless` s'arrête sans processus orphelin.
+- `check_drive.sh` : suppression du `pkill -f` (règle 7) → arrêt par groupe de processus (`set -m`, PGID = `$!`).
+- Avertissement bénin : `gz_frame_id` « not defined in SDF » au chargement, mais le frame_id est bien appliqué.
+
+## Prochaine tâche : M3 — Navigation
+- Contrôleur maison (Nav2 non installé) : module pur `applepic_navigation/controller.py`
+  (suivi de point : rotation sur place si erreur de cap > seuil, puis avance proportionnelle ;
+  tolérance d'arrivée) + nœud `waypoint_follower` qui lit `/odom` (repère monde), publie `/cmd_vel`,
+  prend la liste d'arbres depuis `applepic_gazebo/config/orchard.yaml` (avec un décalage d'approche
+  pour ne pas percuter le tronc, ex. s'arrêter à ~2 m de l'arbre).
+- Tests pytest du contrôleur (convergence sur un modèle unicycle simulé en Python).
+- Vérifier en simu headless : le robot fait la boucle des 6 arbres et revient au dépôt (log des poses).
