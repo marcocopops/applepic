@@ -4,7 +4,8 @@ Wraps the pure state machine `applepic_mission.mission.Mission`: feeds it /odom,
 and basket events, publishes its velocity commands and calls /basket/unload at the depot. The
 magic pick itself is done by the `gripper` node.
 
-Subscribes: /odom, /apples/detections (PoseArray, world frame), /basket/picked, /basket/full.
+Subscribes: /odom, /apples/detections (PoseArray, world frame), /basket/full,
+            /basket/picked_point (where the picked apple was).
 Publishes:  /cmd_vel, ~/state (std_msgs/String, latched), ~/status (std_msgs/String),
             ~/stats (std_msgs/String, JSON, latched, on every transition and every
             `stats_period` s so the HUD distance/time stay live).
@@ -16,7 +17,7 @@ import os
 import re
 
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import PoseArray, Twist
+from geometry_msgs.msg import PointStamped, PoseArray, Twist
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
@@ -27,7 +28,6 @@ from std_srvs.srv import Trigger
 from applepic_mission.apple_tracker import AppleTracker
 from applepic_mission.approach import ApproachParams
 from applepic_mission.mission import DONE, Mission, MissionParams
-from applepic_mission.picking import gripper_position
 from applepic_navigation.controller import ControllerParams, yaw_from_quaternion
 from applepic_navigation.route import load_orchard
 
@@ -83,7 +83,7 @@ class MissionNode(Node):
         self.unload_client = self.create_client(Trigger, '/basket/unload')
         self.create_subscription(Odometry, '/odom', self._on_odom, 10)
         self.create_subscription(PoseArray, '/apples/detections', self._on_detections, 10)
-        self.create_subscription(String, '/basket/picked', self._on_picked, 10)
+        self.create_subscription(PointStamped, '/basket/picked_point', self._on_picked_point, 10)
         self.create_subscription(Bool, '/basket/full', self._on_full, latched)
         self.create_timer(0.1, self._step)
 
@@ -115,11 +115,10 @@ class MissionNode(Node):
     def _on_full(self, msg):
         self.mission.on_basket_full(msg.data)
 
-    def _on_picked(self, msg):
-        if self.pose is None:
-            return
-        self.mission.on_picked(gripper_position(*self.pose, self.offset))
-        self._status(f'picked {msg.data} (total {self.mission.stats.picked}, '
+    def _on_picked_point(self, msg):
+        x, y = msg.point.x, msg.point.y
+        self.mission.on_picked((x, y))
+        self._status(f'picked apple at ({x:.2f}, {y:.2f}) (total {self.mission.stats.picked}, '
                      f'carried {self.mission.carried})')
 
     def _on_unload_done(self, future):
