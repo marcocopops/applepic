@@ -48,7 +48,7 @@ def generate_launch_description():
         DeclareLaunchArgument('yaw', default_value='0.0'),
         DeclareLaunchArgument('capacity', default_value='10'),
         DeclareLaunchArgument('loops', default_value='1', description='0 = forever'),
-        DeclareLaunchArgument('search_radius', default_value='2.0'),
+        DeclareLaunchArgument('search_radius', default_value='1.9'),
         DeclareLaunchArgument('trajectory_csv', default_value=''),
         DeclareLaunchArgument('exit_when_done', default_value='false'),
         perception,

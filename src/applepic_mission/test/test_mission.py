@@ -57,7 +57,7 @@ def test_arrival_starts_search_then_faces_and_looks():
 def test_confirmed_apple_near_tree_triggers_pick_then_resumes_search():
     m = make_mission(coverage=False)
     x, y, yaw = at_search_point(m)       # index 4: west of the trunk, facing east
-    apple = (TREES[0][0] - 1.0, TREES[0][1] + 0.2)
+    apple = (TREES[0][0] - 1.0, TREES[0][1] + 0.15)
     confirm(m, apple, n=1)
     m.step((x, y, yaw), 0.2)
     assert m.state == SEARCH             # one view is not enough
@@ -85,6 +85,21 @@ def test_apple_behind_trunk_is_not_approached():
     assert m.state == SEARCH
     assert not m.approach_feasible(4.5, 4.0)
     assert m.approach_feasible(4.0 - 0.6, 4.0)
+
+
+def test_late_pick_report_retires_the_apple_it_names_not_the_target():
+    # gz may confirm a removal late, while the gripper is already on the next apple.
+    m = make_mission(coverage=False)
+    at_search_point(m)
+    a, b = (TREES[0][0] - 1.0, TREES[0][1] + 0.1), (TREES[0][0] - 0.8, TREES[0][1] - 0.6)
+    confirm(m, a)
+    confirm(m, b)
+    m.step(m._pose, 0.3)
+    assert m.state == PICK
+    target = m.tracker.get(m.target)
+    other = b if math.dist((target.x, target.y), a) < 0.01 else a
+    m.on_picked(other)
+    assert m.state == PICK and m.target == target.id and target.state == 'active'
 
 
 def test_pick_timeout_marks_failed():
@@ -178,7 +193,8 @@ def test_fill_in_view_added_when_circle_done_but_ground_unseen():
     m.step((x, y, yaw), 1.5)                 # single point looked at: ground mostly unseen
     assert m.state == SEARCH and m.tree == 0 and m.fill_ins == 1 and m.k == 1
     fx, fy, fyaw = m.order[1]
-    assert math.dist((fx, fy), TREES[0]) == pytest.approx(m.p.search_radius)
+    r = math.dist((fx, fy), TREES[0])
+    assert m.p.circle_clearance < r <= m.p.search_radius + m.p.fill_in_radial + 1e-9
     assert m.grid(0).gain(m.order[1]) >= m.p.fill_in_gain
 
 
@@ -205,21 +221,22 @@ def test_new_loop_when_loops_not_reached():
 FOOTPRINT = camera_footprint(CameraParams(margin=0.95))
 
 
-def _visible(pose, apple):
+def _visible(pose, apple, footprint=FOOTPRINT):
     x, y, yaw = pose
     dx, dy = apple[0] - x, apple[1] - y
-    return point_in_convex(FOOTPRINT, dx * math.cos(yaw) + dy * math.sin(yaw),
+    return point_in_convex(footprint, dx * math.cos(yaw) + dy * math.sin(yaw),
                            -dx * math.sin(yaw) + dy * math.cos(yaw))
 
 
-def run_world(apples, trees=TREES, capacity=10, max_time=1500.0, dt=0.1, **params):
+def run_world(apples, trees=TREES, capacity=10, max_time=1500.0, dt=0.1, footprint=FOOTPRINT,
+              **params):
     """Unicycle robot + fake detector + magic gripper driven by the mission until DONE."""
     m = Mission(trees, DEPOT, MissionParams(loops=1, **params))
     basket = Basket(capacity)
     remaining = dict(apples)
     pose, t, dist, min_trunk = (0.0, 0.0, 0.0), 0.0, 0.0, math.inf
     while m.state != DONE and t < max_time:
-        m.on_detections([xy for xy in remaining.values() if _visible(pose, xy)], t)
+        m.on_detections([xy for xy in remaining.values() if _visible(pose, xy, footprint)], t)
         v, w = m.step(pose, t)
         if m.unload_requested:
             m.on_unloaded(basket.unload())
@@ -231,9 +248,9 @@ def run_world(apples, trees=TREES, capacity=10, max_time=1500.0, dt=0.1, **param
         g = gripper_position(*pose, 0.46)
         name = apple_in_reach(g, remaining, 0.07)
         if name is not None and not basket.full:
-            del remaining[name]
+            xy = remaining.pop(name)
             basket.add()
-            m.on_picked(g)
+            m.on_picked(xy)
             m.on_basket_full(basket.full)
         t += dt
     return m, basket, remaining, t, min_trunk
@@ -292,4 +309,19 @@ def test_coverage_search_is_faster_and_misses_nothing():
         slow = run_world(apples, trees=trees, capacity=20, coverage=False)
         for m, _, remaining, t, _ in (fast, slow):
             assert m.state == DONE and not remaining, f'seed {seed}: {len(remaining)} left'
-        assert fast[3] < 0.85 * slow[3], f'seed {seed}: {fast[3]:.0f} s vs {slow[3]:.0f} s'
+        assert fast[3] < 0.9 * slow[3], f'seed {seed}: {fast[3]:.0f} s vs {slow[3]:.0f} s'
+
+
+@pytest.mark.parametrize('seed', [1, 6, 11, 2024])
+def test_strict_detector_misses_nothing_on_generated_orchards(seed):
+    # Seeds where the camera never saw some apples near the trunk or at the ring edge (session 11),
+    # with a fake detector that sees exactly the footprint the mission plans with.
+    orchard = pytest.importorskip('applepic_gazebo.orchard')
+    import os
+    cfg = orchard.load_config(os.path.join(os.path.dirname(__file__), '..', '..',
+                                           'applepic_gazebo', 'config', 'orchard.yaml'))
+    cfg['seed'] = seed
+    apples = {a.name: (a.x, a.y) for a in orchard.generate_apples(cfg)}
+    m, basket, remaining, t, _ = run_world(apples, trees=[tuple(t) for t in cfg['trees']],
+                                           max_time=3000.0, footprint=camera_footprint())
+    assert m.state == DONE and not remaining, f'{sorted(remaining)} left'

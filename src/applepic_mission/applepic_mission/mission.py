@@ -38,7 +38,7 @@ DONE = 'DONE'
 
 @dataclass
 class MissionParams:
-    search_radius: float = 2.0      # m, circle of search points around the trunk
+    search_radius: float = 1.9      # m, circle of search points around the trunk
     search_points: int = 8
     apple_radius: float = 1.9       # m, apples farther from the trunk belong to no tree here
     look_time: float = 1.0          # s, stopped facing the trunk at each search point
@@ -53,12 +53,14 @@ class MissionParams:
     pick_timeout: float = 3.0       # s, give up an apple reached but not picked
     pick_gate: float = 0.2          # m, match a reported pick to a track
     coverage: bool = True           # skip search points / leave trees using camera coverage
-    coverage_goal: float = 0.98     # fraction of the tree ground to see before leaving it
+    coverage_goal: float = 0.995    # fraction of the tree ground to see before leaving it
     min_gain: float = 0.01          # skip a search point whose view adds less than this
-    max_fill_in: int = 3            # extra best-gain views on the circle once it is done
-    fill_in_gain: float = 0.02      # minimum coverage added by a fill-in view
-    fill_in_angles: int = 24        # candidate positions of a fill-in view on the circle
-    fill_in_offset: float = 0.6     # rad, candidate headings: trunk and trunk +/- this
+    max_fill_in: int = 4            # extra best-gain views near the circle once it is done
+    fill_in_gain: float = 0.005     # minimum coverage added by a fill-in view
+    fill_in_angles: int = 24        # candidate angular positions of a fill-in view
+    fill_in_offset: float = 0.6     # rad, candidate headings: trunk, +/- half and +/- this
+    fill_in_radial: float = 0.2     # m, candidate fill-in views also this much inside/outside the
+                                    # circle (sees the trunk foot / the outer ring edge)
     coverage_r_min: float = 0.4     # m, covered annulus around the trunk (apple ring + margin)
     coverage_r_max: float = 1.7     # m
     loops: int = 1                  # 0 = forever
@@ -114,11 +116,11 @@ class Mission:
     def on_basket_full(self, full):
         self.basket_full = bool(full)
 
-    def on_picked(self, gripper_xy):
-        """The gripper picked an apple at `gripper_xy`: retire the matching track."""
+    def on_picked(self, apple_xy):
+        """The gripper picked the apple that was at `apple_xy`: retire the matching track."""
         self.stats.picked += 1
         self.carried += 1
-        gx, gy = gripper_xy
+        gx, gy = apple_xy
         cands = [t for t in self.tracker.tracks if t.state == 'active'
                  and math.hypot(t.x - gx, t.y - gy) <= self.p.pick_gate]
         hit = min(cands, key=lambda t: math.hypot(t.x - gx, t.y - gy), default=None)
@@ -170,24 +172,29 @@ class Mission:
                 footprint=self.footprint)
         return self.grids[tree]
 
-    def view_pose(self, tree, angle, offset=0.0):
+    def view_pose(self, tree, angle, offset=0.0, radius=None):
         """Point of the search circle of `tree` at `angle`, facing the trunk (+ `offset` rad)."""
         tx, ty = self.trees[tree]
-        r = self.p.search_radius
+        r = self.p.search_radius if radius is None else radius
         return (tx + r * math.cos(angle), ty + r * math.sin(angle),
                 wrap_angle(angle + math.pi + offset))
 
     def fill_in_view(self):
-        """Search-circle view adding the most coverage of the current tree, or None if too little."""
+        """View near the search circle adding the most coverage of the current tree, or None if
+        too little. Candidates: fill_in_angles positions x 3 radii x 5 headings."""
         grid = self.grid(self.tree)
         best, best_gain = None, self.p.fill_in_gain
+        r, dr, off = self.p.search_radius, self.p.fill_in_radial, self.p.fill_in_offset
+        # Keep the views off the trunk-avoidance circle used to move between them.
+        radii = {max(r - dr, self.p.circle_clearance + 0.05), r, r + dr}
         for i in range(self.p.fill_in_angles):
             a = 2.0 * math.pi * i / self.p.fill_in_angles
-            for off in (0.0, -self.p.fill_in_offset, self.p.fill_in_offset):
-                view = self.view_pose(self.tree, a, off)
-                g = grid.gain(view)
-                if g >= best_gain:
-                    best, best_gain = view, g
+            for radius in sorted(radii):
+                for o in (0.0, -off / 2, off / 2, -off, off):
+                    view = self.view_pose(self.tree, a, o, radius)
+                    g = grid.gain(view)
+                    if g > best_gain:
+                        best, best_gain = view, g
         return best
 
     def pending(self):
@@ -216,18 +223,18 @@ class Mission:
     def _travel_path(self, goal, clearance):
         return plan_path(self._pose[:2], goal, self.trees, clearance)
 
-    def _enter_goto_tree(self):
-        self._set_state(GOTO_TREE)
+    def _enter_goto_tree(self, note=''):
+        self._set_state(GOTO_TREE, note)
         entry = self.search_point(self.tree, self._closest_search_index(self.tree, self._pose[:2]))
         self.path = self._travel_path(entry, self.p.travel_clearance)
 
-    def _enter_goto_base(self, resume):
+    def _enter_goto_base(self, resume, note=''):
         self.resume_tree = resume
         self._clear_target()
-        self._set_state(GOTO_BASE, 'basket full' if resume else 'end of loop')
+        self._set_state(GOTO_BASE, ('basket full' if resume else 'end of loop') + note)
         self.path = self._travel_path(self.depot, self.p.travel_clearance)
 
-    def _enter_search(self, resume=False):
+    def _enter_search(self, resume=False, note=''):
         """Start the search pattern of the current tree, or resume it at the current point."""
         self._clear_target()
         if not resume:
@@ -237,7 +244,7 @@ class Mission:
                           for i in range(n)]
             self.k = 0
             self.fill_ins = 0
-        self._set_state(SEARCH)
+        self._set_state(SEARCH, note)
         if self._skip_covered():
             self._next_tree()
             return
@@ -250,14 +257,23 @@ class Mission:
         self.phase = 'move'
         self.look_until = None
 
+    def _leave_note(self):
+        """Why the current tree is left: its coverage and the active tracks it still has."""
+        note = f'left tree {self.tree}'
+        if self.p.coverage:
+            note += f', coverage {self.grid(self.tree).fraction:.2f}'
+        pending = [f'{t.id}x{t.views}@({t.x:.2f}, {t.y:.2f})' for t in self.pending()]
+        return note + (f', pending {" ".join(pending)}' if pending else '')
+
     def _next_tree(self):
+        note = self._leave_note()
         self.stats.trees_searched += 1
         self.tree += 1
         if self.tree >= len(self.trees):
             self.tree = len(self.trees) - 1
-            self._enter_goto_base(resume=False)
+            self._enter_goto_base(resume=False, note=f' ({note})')
         else:
-            self._enter_goto_tree()
+            self._enter_goto_tree(note)
 
     def _clear_target(self):
         self.target = None
@@ -354,10 +370,12 @@ class Mission:
         timed_out = now - self.target_since > self.p.approach_timeout or (
             self.reached_since is not None and now - self.reached_since > self.p.pick_timeout)
         if track is None or track.state != 'active' or timed_out:
+            note = ''
             if track is not None and track.state == 'active':
                 self.tracker.mark_failed(track.id)
                 self.stats.failed += 1
-            self._enter_search(resume=True)
+                note = f'gave up track {track.id} at ({track.x:.2f}, {track.y:.2f})'
+            self._enter_search(resume=True, note=note)
             return 0.0, 0.0
         v, w, reached = approach_command(*self._pose, track.x, track.y, self.approach)
         if reached and self.reached_since is None:
