@@ -20,7 +20,7 @@
   modèles bien supprimés de Gazebo, panier plein → arrêt, vidage → reprise).
 - M6 : **la mission complète tourne seule** : pour chaque pommier, le robot fait le tour (8 points
   à 2,2 m, face au tronc), ramasse les pommes vues, passe à l'arbre suivant ; panier plein → dépôt,
-  vidage, retour à l'arbre ; fin de boucle → dépôt. Vérifié en headless par `scripts/check_mission.sh` :
+  vidage, retour à l'arbre ; fin de boucle → dépôt. Vérifié en headless (aujourd'hui par `make e2e`) :
   29/29 pommes ramassées et déposées en ~15 min simulées, 208 m.
 - M7 : **test de bout en bout chronométré** `make e2e` (headless, simulation accélérée ×3, ~5 min
   réelles) : PASS si ≥ 80 % des pommes déposées en ≤ 1200 s simulées, recoupé avec Gazebo. Dernier
