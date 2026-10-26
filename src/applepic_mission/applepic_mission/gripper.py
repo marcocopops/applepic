@@ -3,7 +3,9 @@
 When the gripper point (`offset` m ahead of the base, pose from /odom) comes within `pick_radius`
 of an apple model (ground-truth poses from gz `/world/<world>/pose/info`), the apple is removed
 from the simulation (gz service `/world/<world>/remove`, UserCommands plugin) and the basket
-counter is incremented, unless the basket is full.
+counter is incremented, unless the basket is full. A remove request that fails or times out
+(gz may still have executed it under load) is settled by the pose stream: the apple counts as
+picked if it disappears within `confirm_timeout` s, otherwise it may be picked again.
 
 Subscribes: /odom (nav_msgs/Odometry, world frame), gz /world/<world>/pose/info (gz.msgs.Pose_V).
 Publishes:  /basket/count (std_msgs/Int32, latched), /basket/full (std_msgs/Bool, latched),
@@ -11,6 +13,7 @@ Publishes:  /basket/count (std_msgs/Int32, latched), /basket/full (std_msgs/Bool
 Services:   /basket/unload (std_srvs/Trigger): empty the basket (the mission calls it at the depot).
 """
 import threading
+import time
 
 from gz.msgs10.boolean_pb2 import Boolean
 from gz.msgs10.entity_pb2 import Entity
@@ -38,6 +41,8 @@ class Gripper(Node):
         self.declare_parameter('capacity', 10)
         self.declare_parameter('apple_prefix', 'apple_')
         self.declare_parameter('enabled', True)
+        self.declare_parameter('remove_timeout', 3.0)   # s, gz remove service request
+        self.declare_parameter('confirm_timeout', 3.0)  # s, wait for an uncertain removal
         gp = self.get_parameter
         world = gp('world').value
         self.offset = float(gp('offset').value)
@@ -46,10 +51,13 @@ class Gripper(Node):
         self.enabled = bool(gp('enabled').value)
         self.basket = Basket(int(gp('capacity').value))
         self.remove_service = f'/world/{world}/remove'
+        self.remove_timeout_ms = int(1000 * float(gp('remove_timeout').value))
+        self.confirm_timeout = float(gp('confirm_timeout').value)
 
         self.lock = threading.Lock()
         self.apples = {}          # name -> (x, y), ground truth from gz
         self.removed = set()      # names already removed (pose/info may lag one message)
+        self.uncertain = {}       # name -> monotonic time of a failed remove request
         self.full_warned = False
 
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -71,8 +79,19 @@ class Gripper(Node):
         # Called from a gz-transport thread.
         apples = {p.name: (p.position.x, p.position.y)
                   for p in msg.pose if p.name.startswith(self.prefix)}
+        gone = []
         with self.lock:
+            now = time.monotonic()
+            for name, since in list(self.uncertain.items()):
+                if name not in apples:
+                    gone.append(name)
+                    del self.uncertain[name]
+                elif now - since > self.confirm_timeout:
+                    del self.uncertain[name]      # really not removed: allow a new attempt
             self.apples = {n: xy for n, xy in apples.items() if n not in self.removed}
+        for name in gone:
+            self.get_logger().info(f'{name} removed from gz despite the failed request')
+            self._picked(name)
 
     def _on_odom(self, msg):
         if not self.enabled:
@@ -80,7 +99,9 @@ class Gripper(Node):
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
         g = gripper_position(p.x, p.y, yaw_from_quaternion(q.x, q.y, q.z, q.w), self.offset)
         with self.lock:
-            name = apple_in_reach(g, self.apples, self.radius)
+            name = apple_in_reach(
+                g, {n: xy for n, xy in self.apples.items() if n not in self.uncertain},
+                self.radius)
         if name is None:
             return
         if self.basket.full:
@@ -89,11 +110,16 @@ class Gripper(Node):
                 self.full_warned = True
             return
         if not self._remove(name):
+            with self.lock:
+                self.uncertain[name] = time.monotonic()
             return
+        self._picked(name)
+
+    def _picked(self, name):
         with self.lock:
             self.removed.add(name)
             self.apples.pop(name, None)
-        self.basket.add()
+            self.basket.add()
         self.get_logger().info(
             f'picked {name} -> basket {self.basket.count}/{self.basket.capacity}')
         self.picked_pub.publish(String(data=name))
@@ -103,7 +129,8 @@ class Gripper(Node):
         req = Entity()
         req.name = name
         req.type = Entity.MODEL
-        ok, rep = self.gz.request(self.remove_service, req, Entity, Boolean, 1000)
+        ok, rep = self.gz.request(self.remove_service, req, Entity, Boolean,
+                                  self.remove_timeout_ms)
         if not (ok and rep.data):
             self.get_logger().warn(f'gz remove {name} failed', throttle_duration_sec=2.0)
             return False
