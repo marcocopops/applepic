@@ -44,6 +44,14 @@ def test_wheels_touch_ground_on_rotation_axis(robot):
         assert base_z + z - radius == pytest.approx(0.0, abs=1e-9)
 
 
+def test_chassis_clears_apples(robot):
+    # Apples are 8 cm tall: a lower chassis pushes (and sometimes launches) them.
+    base_z = _joint_xyz(robot, 'base_joint')[2]
+    box = robot.find("link[@name='base_link']/collision/geometry/box")
+    height = float(box.get('size').split()[2])
+    assert base_z - height / 2 > 0.08 + 0.01
+
+
 def test_gripper_in_front_and_low(robot):
     x, _, z = _joint_xyz(robot, 'gripper_joint')
     chassis_front = 0.10 + 0.30
