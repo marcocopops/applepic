@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# M7 end-to-end scenario: headless sim + detector + gripper + mission, one loop from the depot,
+# simulation sped up to RTF (camera rendering caps it around 4 on the dev machine).
+# PASS if the mission reaches DONE within SIM_LIMIT simulated seconds with at least MIN_RATIO of
+# the apples unloaded at the depot, and gz agrees (picked models removed).
+# Outputs: artifacts/e2e_metrics.json, artifacts/e2e_trajectory.{csv,png}, artifacts/e2e.log.
+# Usage: scripts/e2e_mission.sh [min_ratio [sim_limit [rtf [capacity [wall_timeout]]]]]
+set -o pipefail
+cd "$(dirname "$0")/.."
+source /opt/ros/jazzy/setup.bash && source install/setup.bash
+MIN=${1:-0.8}; SIM_LIMIT=${2:-1200}; RTF=${3:-3}; CAP=${4:-10}; TIMEOUT=${5:-1800}
+mkdir -p artifacts
+LOG=artifacts/e2e.log
+CSV="$PWD/artifacts/e2e_trajectory.csv"
+# Job control: the launch gets its own process group, stopped by PGID (never by name).
+set -m
+ros2 launch applepic_bringup mission.launch.py headless:=true capacity:="$CAP" loops:=1 \
+  trajectory_csv:="$CSV" > "$LOG" 2>&1 &
+LAUNCH=$!
+cleanup() {
+  kill -INT -- -"$LAUNCH" 2>/dev/null
+  for _ in $(seq 10); do kill -0 -- -"$LAUNCH" 2>/dev/null || return 0; sleep 1; done
+  kill -KILL -- -"$LAUNCH" 2>/dev/null || true
+}
+trap cleanup EXIT
+if [ "$RTF" != "1" ]; then
+  ok=0
+  for _ in $(seq 60); do
+    if gz service -s /world/orchard/set_physics --reqtype gz.msgs.Physics \
+        --reptype gz.msgs.Boolean --timeout 2000 \
+        --req "max_step_size: 0.001, real_time_factor: $RTF" 2>/dev/null | grep -q true; then
+      ok=1; break
+    fi
+    sleep 1
+  done
+  [ $ok = 1 ] && echo "real-time factor set to $RTF" || echo "WARN: could not set RTF $RTF"
+fi
+python3 scripts/eval_e2e.py --min-ratio "$MIN" --sim-limit "$SIM_LIMIT" --timeout "$TIMEOUT"
+status=$?
+cleanup  # stop the nodes first so the trajectory CSV is flushed and closed
+python3 scripts/plot_e2e.py "$CSV" artifacts/e2e_metrics.json artifacts/e2e_trajectory.png \
+  || true
+echo "--- mission transitions ---"
+grep -E "\[mission.*(->|done|unloaded)" "$LOG" | sed 's/^/  /' | tail -60
+exit $status

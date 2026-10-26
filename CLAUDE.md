@@ -23,8 +23,9 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `ros2 launch applepic_bringup perception.launch.py x:=2.6 y:=4.0` : simu + `apple_detector` (`/apples/detections`, `/apples/debug_image`)
 - `scripts/check_picking.sh [x y yaw min timeout capacity]` : ramassage headless (detector + gripper + apple_picker), recoupe `/basket/*` et `gz model --list`
 - `ros2 launch applepic_bringup picking.launch.py x:=9.6 y:=9.5 yaw:=1.57 [capacity:=10]` : simu + détection + ramassage
-- `scripts/check_mission.sh [min_ratio timeout capacity]` : mission complète headless (~15 min), métriques
-  `artifacts/mission_metrics.json`, tracé `artifacts/mission_trajectory.png`
+- `make e2e` / `scripts/e2e_mission.sh [min_ratio sim_limit rtf capacity wall_timeout]` : scénario M7 de bout en bout
+  headless (1 boucle, RTF 3 par défaut, ~5 min), PASS/FAIL, métriques `artifacts/e2e_metrics.json`,
+  tracé `artifacts/e2e_trajectory.png` (pommes ramassées / restantes)
 - `ros2 launch applepic_bringup mission.launch.py [headless:=false capacity:=10 loops:=1]` : simu + détection + mission
 - `ros2 launch applepic_bringup navigation.launch.py loops:=1 [headless:=false]` : simu + suivi de boucle
 - `scripts/capture_camera.py out.png` : sauve une image de `/camera/image_raw` (simu lancée)
