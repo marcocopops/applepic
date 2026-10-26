@@ -15,6 +15,7 @@ make test           # tests unitaires
 make world          # régénère le monde du verger
 make sim-headless   # lance la simulation sans GUI
 make e2e            # test de bout en bout headless (~5 min) -> PASS/FAIL + métriques
+make e2e E2E_SEED=7 # idem sur un autre verger (autres positions de pommes, monde dans artifacts/)
 make demo           # démo : mission complète avec GUI Gazebo + RViz
 ```
 

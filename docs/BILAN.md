@@ -19,15 +19,17 @@
   vérifié en headless par `scripts/check_picking.sh` (arbre 0 : 2/2 pommes visibles, arbre 4 : 4/4,
   modèles bien supprimés de Gazebo, panier plein → arrêt, vidage → reprise).
 - M6 : **la mission complète tourne seule** : pour chaque pommier, le robot fait le tour (jusqu'à 8 points
-  à 2,0 m, face au tronc, en sautant le sol déjà vu), ramasse les pommes vues, passe à l'arbre suivant ; panier plein → dépôt,
+  à 1,9 m, face au tronc, en sautant le sol déjà vu), ramasse les pommes vues, passe à l'arbre suivant ; panier plein → dépôt,
   vidage, retour à l'arbre ; fin de boucle → dépôt. Vérifié en headless (aujourd'hui par `make e2e`) :
   29/29 pommes ramassées et déposées en ~11 min simulées.
 - M7 : **test de bout en bout chronométré** `make e2e` (headless, simulation accélérée ×3, ~5 min
   réelles) : PASS si ≥ 80 % des pommes déposées en ≤ 1200 s simulées, recoupé avec Gazebo. Dernier
-  run : 29/29 déposées, 660 s simulées, 178 m (`artifacts/e2e_metrics.json`, `artifacts/e2e_trajectory.png`).
-- M9 (en cours) : **mission 26 % plus rapide** : le robot mémorise le sol déjà vu par la caméra
-  autour de chaque arbre et saute les points d'observation inutiles. `make e2e` ×2 : 29/29 en
-  656–660 s simulées (avant 888 s). Corrigé au passage une perte de pommes rare du préhenseur.
+  run : 29/29 déposées, 725 s simulées, 188 m (`artifacts/e2e_metrics.json`, `artifacts/e2e_trajectory.png`).
+- M9 (en cours) : recherche guidée par la couverture caméra (session 10), puis **robustesse sur
+  d'autres vergers** (session 11) : `make e2e E2E_SEED=n` ; seeds 42, 7, 123, 2024 → **128/128 pommes
+  déposées, 0 échec** (avant corrections : 1 à 3 pommes perdues par verger : zones jamais vues,
+  pommes poussées ou projetées par le châssis, préhenseur qui gelait). Mission un peu plus lente
+  (725 s simulées sur le verger par défaut, 800–870 s sur les autres).
 - M8 : **démo `make demo`** (GUI Gazebo + RViz : verger, trajectoire, détections, texte d'état
   au-dessus du robot, image caméra annotée). Vérifié : lancée sur l'écran de cette machine pendant
   90 s (deux fenêtres ouvertes, 4 pommes ramassées, captures `artifacts/demo_{rviz,gazebo}.png`,
@@ -59,6 +61,7 @@ scripts/check_picking.sh   # test automatique headless du ramassage
 ros2 launch applepic_bringup mission.launch.py headless:=false   # MISSION COMPLÈTE (GUI)
 ros2 topic echo /mission/status   # transitions de la mission (autre terminal)
 make e2e   # test de bout en bout headless chronométré (~5 min) -> PASS/FAIL + métriques
+make e2e E2E_SEED=7   # idem sur un autre verger (autres positions de pommes)
 ```
 
 ## 3. Décisions à relire
@@ -74,15 +77,18 @@ make e2e   # test de bout en bout headless chronométré (~5 min) -> PASS/FAIL +
   chaque arbre ; le robot ne vise une pomme que si son trajet reste à ≥ 0,45 m du tronc.
 - D9 : test M7 chronométré en temps simulé, simulation accélérée ×3 ; seuil 80 % et limite 1200 s
   (modifiables : `make e2e E2E_MIN_RATIO=0.9 E2E_SIM_LIMIT=1000`).
-- D11 : recherche guidée par la couverture caméra (seuils 98 % / 1 % choisis pour ne perdre
+- D11 : recherche guidée par la couverture caméra (seuils revus en D12 ; à l'origine 98 % / 1 % pour ne perdre
   aucune pomme ; plus agressif = plus rapide mais quelques pommes perdues).
+- D12 : couverture du sol quasi totale (plus lent, mais aucune pomme ratée), **garde au sol du robot
+  portée à 10 cm** (le châssis passe au-dessus des pommes), le robot s'écarte d'une pomme sous le
+  châssis avant de pivoter vers elle.
 - D10 : démo = même mission que M7 + nœud `mission_viz` (marqueurs RViz) ; vitesse réelle par
   défaut (`make demo DEMO_RTF=2` pour accélérer, non testé avec la GUI).
 
 ## 4. Cassé / bloqué
 - Rien de bloquant. Voir `docs/TODO_HUMAIN.md` (optionnel).
-- Le texte d'état RViz n'actualise distance/temps qu'aux changements d'état (cosmétique).
+- Démo GUI non relancée depuis les changements de la session 11 (vérifiée seulement en headless).
 
 ## 5. Prochaines étapes
-- HUD RViz rafraîchi en continu ; tester d'autres verger (seeds) dans `make e2e`.
-- GPS simulé bruité + robot_localization (à installer, voir TODO_HUMAIN), obstacles.
+- GPS simulé bruité + localisation (robot_localization à installer, voir TODO_HUMAIN), obstacles.
+- Accélérer la mission sans perdre de pommes.

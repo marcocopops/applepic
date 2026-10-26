@@ -23,9 +23,12 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `ros2 launch applepic_bringup perception.launch.py x:=2.6 y:=4.0` : simu + `apple_detector` (`/apples/detections`, `/apples/debug_image`)
 - `scripts/check_picking.sh [x y yaw min timeout capacity]` : ramassage headless (detector + gripper + apple_picker), recoupe `/basket/*` et `gz model --list`
 - `ros2 launch applepic_bringup picking.launch.py x:=9.6 y:=9.5 yaw:=1.57 [capacity:=10]` : simu + détection + ramassage
-- `make e2e` / `scripts/e2e_mission.sh [min_ratio sim_limit rtf capacity wall_timeout]` : scénario M7 de bout en bout
-  headless (1 boucle, RTF 3 par défaut, ~5 min), PASS/FAIL, métriques `artifacts/e2e_metrics.json`,
-  tracé `artifacts/e2e_trajectory.png` (pommes ramassées / restantes)
+- `make e2e [E2E_SEED=n]` / `scripts/e2e_mission.sh [min_ratio sim_limit rtf capacity wall_timeout seed]` : scénario M7
+  de bout en bout headless (1 boucle, RTF 3 par défaut, ~5 min), PASS/FAIL, métriques `artifacts/e2e_metrics.json`
+  (dont poses finales des pommes restées au sol), tracé `artifacts/e2e_trajectory.png` ; avec un seed, monde
+  régénéré dans `artifacts/orchard_seed<n>.sdf`. Diagnostic : `grep -E "gave up|left tree" artifacts/e2e.log`
+- gz-transport Python : `GzNode.request` garde le GIL pendant l'attente (gèle tout le nœud) → pour un service gz,
+  utiliser `gz service` en sous-processus (cf. `gripper.py`)
 - `make demo [DEMO_RTF=2]` / `ros2 launch applepic_bringup demo.launch.py [rtf:=2 rviz:=false headless:=true]` :
   démo M8 (GUI Gazebo + RViz, nœud `mission_viz` : `/mission_viz/markers|path`)
 - `scripts/check_demo.sh [timeout rtf]` : démo headless sans RViz, valide marqueurs/HUD/trajectoire
@@ -44,7 +47,7 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `src/applepic_navigation` : `controller.py` (suivi de point), `route.py` (boucle d'arbres), nœud `waypoint_follower`
 - `src/applepic_perception` : `detector.py` (HSV), `projection.py` (pixel→sol), nœud `apple_detector`
 - `src/applepic_mission` : `basket.py`, `picking.py`, `apple_tracker.py` (fusion des détections), `approach.py`
-  (préhenseur → point), nœuds `gripper` (ramassage magique via gz-transport Python : `/basket/count|full|picked`,
+  (préhenseur → point), nœuds `gripper` (ramassage magique : `/basket/count|full|picked|picked_point`,
   srv `/basket/unload`), `apple_picker` (démo M5), `coverage.py` (empreinte caméra au sol + grille de couverture par arbre),
   `mission.py` (machine à états pure) et nœud `mission`
   (`/mission/state|status|stats`), `viz.py` + nœud `mission_viz` (marqueurs RViz de la démo)

@@ -145,3 +145,35 @@
   « next-best-view » complet (plus lent à mettre au point, gain marginal mesuré) ; seuils plus
   agressifs (couverture 90–95 %, gain 3–4 %) : 600–620 s mais 1 à 8 pommes perdues sur 304 ;
   rouler plus près des troncs (risque de pousser les pommes avec le châssis).
+
+## D12 — Robustesse multi-seeds : couverture complète, châssis relevé, pas de pivot sur une pomme (session 11)
+- Contexte : `make e2e` sur d'autres vergers (seeds 7, 123, 2024 ; mêmes arbres, autres pommes)
+  passait (≥ 80 %) mais laissait 1 à 3 pommes. Deux causes distinctes, établies par les poses
+  finales des pommes dans gz et le rejeu de la trajectoire :
+  1. **Pommes jamais vues** (restées à leur place) : l'arbre était quitté à 94–98 % de couverture.
+     Depuis le cercle à 2,0 m face au tronc, l'empreinte (0,48–1,44 m devant) laisse deux zones
+     aveugles : pied du tronc (r < 0,6 m) et bord de la couronne (r ≈ 1,5–1,7 m) ; les vues de
+     complément (gain ≥ 2 %) ne les rattrapaient pas.
+  2. **Pommes poussées ou éjectées** (retrouvées à 60–160 m) : le bas du châssis était à 5 cm, une
+     pomme fait 8 cm ; surtout, en pivotant sur place vers une pomme passée sous le châssis, la
+     roulette avant lui roulait dessus et le moteur physique la projetait.
+- Décision :
+  - Couverture : cercle 1,9 m, objectif 99,5 %, vues de complément jusqu'à 4 avec gain ≥ 0,5 %,
+    candidates sur 3 rayons (1,75 / 1,9 / 2,1 m) × 24 positions × 5 caps. Choisi par balayage
+    unicycle sur 20 vergers générés (640 pommes) avec un faux détecteur strict (exactement
+    l'empreinte planifiée) : 7 pommes perdues → 0, mais +13 % de temps de mission.
+  - Robot : garde au sol 10 cm (le châssis passe au-dessus des pommes ; caméra et préhenseur,
+    définis par rapport à `base_footprint`, inchangés).
+  - Approche : si la pomme est à moins de `offset + 0,1 m` de la base et mal alignée, le robot
+    s'en éloigne en ligne droite avant de pivoter (la roulette balaie un cercle de 0,32 m).
+  - Préhenseur : la requête gz `remove` via le binding Python gz-transport garde le GIL pendant
+    son attente : tout le nœud (flux de poses gz, `/odom`) gelait jusqu'à 3 s par ramassage, la
+    réponse expirait souvent (alors que gz supprimait la pomme) et la mission abandonnait la pomme
+    suivante. Désormais : `gz service` lancé en sous-processus depuis un thread ; la pomme est
+    comptée dès qu'elle disparaît du flux de poses (ou à la réponse positive), relance possible
+    après `remove_timeout + confirm_timeout` si elle est toujours là. Le préhenseur publie aussi
+    `/basket/picked_point` (position de la pomme ramassée), que la mission utilise pour retirer la
+    bonne piste : avec la position courante du préhenseur, une confirmation tardive retirait la
+    piste visée suivante (pomme laissée au sol, cas observé avec seed 42).
+- Écarté : supprimer les collisions pommes/robot (masquerait un vrai problème de conception) ;
+  préhenseur « magique » à plus grande portée (idem) ; garder 98 % (plus rapide, pommes perdues).

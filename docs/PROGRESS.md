@@ -157,8 +157,34 @@
 - Non atteint : objectif < 600 s (les seuils qui y arrivaient perdaient des pommes) ; restent
   GOTO_TREE + GOTO_BASE ≈ 240 s et les retours au point de recherche après chaque ramassage.
 
-## Prochaine tâche : M9 — HUD continu puis robustesse multi-seeds
-- Publier `/mission/stats` à 1 Hz (HUD RViz rafraîchi en continu), test unitaire si logique pure.
-- Ajouter à `make e2e` une option de seed de verger (monde régénéré dans `artifacts/`, pas commité)
-  et vérifier 2–3 seeds en Gazebo.
-- Ensuite : GPS bruité (navsat + robot_localization : non installé → TODO_HUMAIN), obstacles.
+## Session 11 (2026-10-26)
+- HUD continu : `/mission/stats` republié toutes les `stats_period` s (1 s simulée ; mesuré 3,0 Hz réels
+  à RTF 3) ; `scripts/check_demo.sh` PASS, HUD « 5 m 14 s » avant la 1ʳᵉ transition.
+- `make e2e E2E_SEED=<n>` : monde régénéré dans `artifacts/orchard_seed<n>.sdf` (+ manifeste),
+  argument `world` dans `perception/mission.launch.py` ; `eval_e2e.py` enregistre le seed et les
+  poses finales gz des pommes restées au sol ; la mission journalise les abandons de piste et, au départ
+  de chaque arbre, couverture + pistes en attente.
+- Robustesse multi-seeds (D12) : premier passage sur les seeds 7/123/2024 → PASS mais 1 à 3 pommes
+  perdues par verger. Quatre causes trouvées et corrigées, chacune par diagnostic sur les journaux :
+  1. zones jamais vues (pied du tronc, bord de couronne) → cercle 1,9 m, couverture 99,5 %, vues de
+     complément sur 3 rayons × 5 caps (balayage unicycle 20 vergers / 640 pommes avec détecteur strict :
+     7 perdues → 0, +13 % de temps) ;
+  2. pommes poussées par le châssis (bas à 5 cm < 8 cm) → garde au sol 10 cm ;
+  3. pommes éjectées à 60–160 m : la roulette roulait dessus quand le robot pivotait vers une pomme
+     passée sous le châssis → l'approche s'éloigne en ligne droite avant de pivoter ;
+  4. préhenseur : `GzNode.request` (Python) garde le GIL → nœud gelé jusqu'à 3 s par ramassage,
+     confirmations tardives attribuées à la mauvaise piste → `gz service` en sous-processus dans un
+     thread, comptage par le flux de poses, nouveau topic `/basket/picked_point` utilisé par la mission.
+  - Vérifié (code final) : `make e2e` seeds 123 / 42 / 2024 / 7 → **PASS 100 % partout, 128/128
+    pommes, 0 abandon** ; 870 / 725 / 864 / 804 s simulées (limite 1200 s), 188–239 m.
+    `scripts/check_picking.sh` OK, `scripts/check_demo.sh` PASS, aucun processus orphelin.
+  - `make test` : 97 tests, 0 échec (dont détecteur strict sur 4 vergers générés, approche sans
+    toucher la roulette, rapport de ramassage tardif).
+- Coût : mission plus lente sur le verger par défaut (725 s contre 656 s) : on vise tout le sol.
+- Non vérifié : démo GUI après ces changements (seulement `check_demo.sh` headless).
+
+## Prochaine tâche : M9 — GPS simulé bruité ou obstacles
+- GPS : capteur navsat dans l'URDF + `/gps/fix` ; robot_localization non installé → écrire la commande
+  dans TODO_HUMAIN et faire en attendant un petit filtre maison (EKF 2D odom roues + GPS) testable en pur
+  Python ; mesurer l'erreur de pose et son effet sur le ramassage (`make e2e`).
+- Option : réduire le temps de mission (retours au point de recherche après chaque ramassage).
