@@ -13,3 +13,15 @@
 - Contexte : rien à compiler en C++ pour le POC.
 - Décision : `ament_python` partout, logique pure séparée des nœuds rclpy pour être testée avec pytest.
 - Écarté : ament_cmake pour description/gazebo (inutile, data_files suffit).
+
+## D3 — Monde du verger généré et versionné (session 2)
+- Contexte : M1 demande un monde paramétrable et reproductible.
+- Décision : `applepic_gazebo/orchard.py` (Python pur) génère `worlds/orchard.sdf` + un manifeste
+  vérité terrain `worlds/orchard_apples.yaml` depuis `config/orchard.yaml` (seed fixe). Les deux
+  fichiers générés sont commités (`make world` pour régénérer). 6 arbres en boucle, 4 à 7 pommes
+  par arbre dans un anneau 0,45–1,6 m, zone de dépôt bleue (visuel seul, sans collision) en (0,0).
+- Pommes = sphères dynamiques (r = 4 cm, 150 g) : stables au repos sur sol plan (vérifié), le robot
+  pourra les pousser. Plugins monde déjà inclus : UserCommands (suppression d'entité pour le
+  ramassage magique), Sensors ogre2, Imu, NavSat + `spherical_coordinates` (pour le GPS du M9).
+- Écarté : pommes statiques (irréaliste si le robot les touche), modèles Fuel (téléchargement réseau,
+  inutile pour HSV), herbe texturée (le vert uni suffit à la segmentation).
