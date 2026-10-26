@@ -18,13 +18,16 @@
   du monde quand le préhenseur passe dessus), compteur et capacité du panier, vidage par service ;
   vérifié en headless par `scripts/check_picking.sh` (arbre 0 : 2/2 pommes visibles, arbre 4 : 4/4,
   modèles bien supprimés de Gazebo, panier plein → arrêt, vidage → reprise).
-- M6 : **la mission complète tourne seule** : pour chaque pommier, le robot fait le tour (8 points
-  à 2,2 m, face au tronc), ramasse les pommes vues, passe à l'arbre suivant ; panier plein → dépôt,
+- M6 : **la mission complète tourne seule** : pour chaque pommier, le robot fait le tour (jusqu'à 8 points
+  à 2,0 m, face au tronc, en sautant le sol déjà vu), ramasse les pommes vues, passe à l'arbre suivant ; panier plein → dépôt,
   vidage, retour à l'arbre ; fin de boucle → dépôt. Vérifié en headless (aujourd'hui par `make e2e`) :
-  29/29 pommes ramassées et déposées en ~15 min simulées, 208 m.
+  29/29 pommes ramassées et déposées en ~11 min simulées.
 - M7 : **test de bout en bout chronométré** `make e2e` (headless, simulation accélérée ×3, ~5 min
   réelles) : PASS si ≥ 80 % des pommes déposées en ≤ 1200 s simulées, recoupé avec Gazebo. Dernier
-  run : 29/29 déposées, 888 s simulées, 208 m (`artifacts/e2e_metrics.json`, `artifacts/e2e_trajectory.png`).
+  run : 29/29 déposées, 660 s simulées, 178 m (`artifacts/e2e_metrics.json`, `artifacts/e2e_trajectory.png`).
+- M9 (en cours) : **mission 26 % plus rapide** : le robot mémorise le sol déjà vu par la caméra
+  autour de chaque arbre et saute les points d'observation inutiles. `make e2e` ×2 : 29/29 en
+  656–660 s simulées (avant 888 s). Corrigé au passage une perte de pommes rare du préhenseur.
 - M8 : **démo `make demo`** (GUI Gazebo + RViz : verger, trajectoire, détections, texte d'état
   au-dessus du robot, image caméra annotée). Vérifié : lancée sur l'écran de cette machine pendant
   90 s (deux fenêtres ouvertes, 4 pommes ramassées, captures `artifacts/demo_{rviz,gazebo}.png`,
@@ -71,6 +74,8 @@ make e2e   # test de bout en bout headless chronométré (~5 min) -> PASS/FAIL +
   chaque arbre ; le robot ne vise une pomme que si son trajet reste à ≥ 0,45 m du tronc.
 - D9 : test M7 chronométré en temps simulé, simulation accélérée ×3 ; seuil 80 % et limite 1200 s
   (modifiables : `make e2e E2E_MIN_RATIO=0.9 E2E_SIM_LIMIT=1000`).
+- D11 : recherche guidée par la couverture caméra (seuils 98 % / 1 % choisis pour ne perdre
+  aucune pomme ; plus agressif = plus rapide mais quelques pommes perdues).
 - D10 : démo = même mission que M7 + nœud `mission_viz` (marqueurs RViz) ; vitesse réelle par
   défaut (`make demo DEMO_RTF=2` pour accélérer, non testé avec la GUI).
 
@@ -79,4 +84,5 @@ make e2e   # test de bout en bout headless chronométré (~5 min) -> PASS/FAIL +
 - Le texte d'état RViz n'actualise distance/temps qu'aux changements d'état (cosmétique).
 
 ## 5. Prochaines étapes
-- Accélérer la mission (une boucle ≈ 15 min : beaucoup de temps passé à regarder des zones vides).
+- HUD RViz rafraîchi en continu ; tester d'autres verger (seeds) dans `make e2e`.
+- GPS simulé bruité + robot_localization (à installer, voir TODO_HUMAIN), obstacles.

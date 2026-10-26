@@ -44,9 +44,10 @@ Sur la machine avec écran (pas en SSH sans X) :
      et au-dessus du robot un texte d'état : état de la mission, arbre courant, panier `n/10`,
      pommes ramassées / déposées, distance et temps (rafraîchis à chaque changement d'état).
      Panneau en haut à gauche : image caméra annotée (détections encadrées).
-4. Déroulé : le robot part du dépôt, fait le tour de chaque pommier (8 points d'observation),
-   ramasse les pommes vues, revient vider son panier quand il est plein (10 pommes), puis au
-   dépôt en fin de boucle. Une boucle complète prend ~15 min à vitesse réelle.
+4. Déroulé : le robot part du dépôt, fait le tour de chaque pommier (jusqu'à 8 points
+   d'observation à 2 m, en sautant ceux dont le sol a déjà été vu par la caméra), ramasse les
+   pommes vues, revient vider son panier quand il est plein (10 pommes), puis au dépôt en fin de
+   boucle. Une boucle complète prend ~11 min à vitesse réelle.
 5. Suivre la mission dans un autre terminal (après `source install/setup.bash`) :
    ```bash
    ros2 topic echo /mission/status      # transitions de la machine à états

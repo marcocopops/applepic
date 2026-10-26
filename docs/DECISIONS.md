@@ -125,3 +125,23 @@
 - Écarté : afficher les pommes réelles (vérité terrain) dans RViz (ce serait tricher visuellement
   sur la perception) ; plugin RViz personnalisé pour le HUD (texte 3D suffisant) ;
   enregistrement vidéo automatique (pas d'outil de capture d'écran installé, pas de Xvfb).
+
+## D11 — Recherche guidée par la couverture caméra (session 10)
+- Contexte : une boucle prenait 888 s simulées, dont 531 s en SEARCH (8 points fixes par arbre,
+  même quand tout était déjà vu). L'empreinte réelle de la caméra au sol, calculée depuis l'URDF,
+  est 0,44–1,69 m devant la base (et non 0,4–2,3 m comme supposé en session 7) : 8 vues fixes à
+  2,2 m ne couvrent que ~75 % de la couronne où tombent les pommes ; c'est en roulant vers les
+  pommes que le reste était vu.
+- Décision : module pur `coverage.py` : empreinte = projection des coins de l'image (réduite à
+  85 % : marge pour les blobs coupés au bord) sur le plan des pommes ; grille 10 cm de la couronne
+  0,4–1,7 m autour de chaque tronc, marquée à chaque tick en SEARCH/PICK (occultation par le tronc
+  incluse). La mission saute les points dont la vue ajouterait < 1 % de la couronne, quitte l'arbre
+  dès 98 % vus, sauf s'il reste une piste active (même vue une seule fois) près de l'arbre ; une fois
+  le cercle fini, jusqu'à 3 vues « de complément » (meilleur gain parmi 24 positions × 3 caps sur le
+  cercle, gain ≥ 2 %). Cercle ramené à 2,0 m (le bout de l'empreinte atteint le tronc), regard 1,0 s,
+  rotation vers le tronc à 1,2 rad/s. Réglage choisi par balayage dans un simulateur unicycle
+  (9 vergers, 304 pommes) puis vérifié dans Gazebo : 656 s au lieu de 888 s, 29/29.
+- Écarté : arrêter après N points sans nouvelle pomme (aucune garantie de couverture) ; planificateur
+  « next-best-view » complet (plus lent à mettre au point, gain marginal mesuré) ; seuils plus
+  agressifs (couverture 90–95 %, gain 3–4 %) : 600–620 s mais 1 à 8 pommes perdues sur 304 ;
+  rouler plus près des troncs (risque de pousser les pommes avec le châssis).

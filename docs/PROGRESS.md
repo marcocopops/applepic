@@ -137,10 +137,28 @@
 - Leçon : enregistrer `$!` avec `set -m` exécuté AVANT la ligne backgroundée (sinon mauvais PGID,
   cf. CLAUDE.md) — je me suis encore fait avoir une fois, rattrapé via `ps -o pgid`.
 
-## Prochaine tâche : M9 — accélérer la recherche autour des arbres
-- Dans `mission.py` : sauter les points de recherche dont la zone de vue est déjà couverte (pistes
-  connues, toutes ramassées) ou arrêter le tour quand le nombre de pommes vues/ramassées est stable
-  après N points ; viser une boucle < 600 s simulées sans perdre de pommes (`make e2e` doit rester
-  29/29). Mettre à jour les tests unitaires de transitions.
-- Ensuite : HUD rafraîchi en continu (publier `/mission/stats` à 1 Hz), GPS bruité (navsat +
-  robot_localization : non installé → TODO_HUMAIN), autres seeds de verger dans `make e2e`.
+## Session 10 (2026-10-26)
+- M9 (1ʳᵉ amélioration) fait : recherche guidée par la couverture caméra (D11). Module pur
+  `applepic_mission/coverage.py` (empreinte caméra au sol depuis la géométrie URDF, grille de la
+  couronne 0,4–1,7 m par arbre, occultation par le tronc) ; `mission.py` : points déjà vus sautés,
+  arbre quitté à 98 % couvert sauf piste active restante, ≤ 3 vues de complément ; cercle 2,0 m,
+  regard 1,0 s, rotation 1,2 rad/s (défauts des launch passés à 2,0).
+  - Constat : l'empreinte réelle est 0,44–1,69 m devant la base (pas 2,3 m) ; vérifié sur les
+    captures M4 (pommes vues/non vues cohérentes avec le calcul).
+  - Réglage par balayage dans un simulateur unicycle (verger généré + 8 vergers aléatoires, 304
+    pommes) : 871 → 645 s sur le verger généré, 0 pomme perdue.
+  - Bug corrigé dans `gripper` : sous RTF 3, la requête gz `remove` expirait (1 s) alors que gz
+    supprimait la pomme → 2 pommes perdues au 1ᵉʳ run (27/29). Délai 3 s + confirmation par le flux
+    de poses. Ce chemin de confirmation n'a pas été déclenché lors des runs suivants (non exercé).
+  - Vérifié : `make e2e` ×2 → **PASS 29/29, 656 s et 660 s simulées** (avant : 888 s), 176–178 m
+    (avant : 208 m), 0 échec ; `scripts/check_demo.sh` PASS ; aucun processus orphelin.
+  - `make test` : 85 tests, 0 échec (6 tests `coverage`, 6 tests mission couverture dont
+    comparaison de vitesse sur 3 vergers ; le faux détecteur des tests utilise l'empreinte réelle).
+- Non atteint : objectif < 600 s (les seuils qui y arrivaient perdaient des pommes) ; restent
+  GOTO_TREE + GOTO_BASE ≈ 240 s et les retours au point de recherche après chaque ramassage.
+
+## Prochaine tâche : M9 — HUD continu puis robustesse multi-seeds
+- Publier `/mission/stats` à 1 Hz (HUD RViz rafraîchi en continu), test unitaire si logique pure.
+- Ajouter à `make e2e` une option de seed de verger (monde régénéré dans `artifacts/`, pas commité)
+  et vérifier 2–3 seeds en Gazebo.
+- Ensuite : GPS bruité (navsat + robot_localization : non installé → TODO_HUMAIN), obstacles.

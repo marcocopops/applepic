@@ -45,7 +45,8 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `src/applepic_perception` : `detector.py` (HSV), `projection.py` (pixel→sol), nœud `apple_detector`
 - `src/applepic_mission` : `basket.py`, `picking.py`, `apple_tracker.py` (fusion des détections), `approach.py`
   (préhenseur → point), nœuds `gripper` (ramassage magique via gz-transport Python : `/basket/count|full|picked`,
-  srv `/basket/unload`), `apple_picker` (démo M5), `mission.py` (machine à états pure) et nœud `mission`
+  srv `/basket/unload`), `apple_picker` (démo M5), `coverage.py` (empreinte caméra au sol + grille de couverture par arbre),
+  `mission.py` (machine à états pure) et nœud `mission`
   (`/mission/state|status|stats`), `viz.py` + nœud `mission_viz` (marqueurs RViz de la démo)
 - `src/applepic_bringup` : launch files de haut niveau
 Tous les paquets sont `ament_python`. La logique pure (sans rclpy) est dans des modules
