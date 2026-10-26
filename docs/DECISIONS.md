@@ -111,3 +111,17 @@
 - Écarté : launch_testing (plus lourd à déboguer, pas de gain ici) ; chronométrage en temps réel
   (dépend de la charge machine) ; RTF illimité (`real_time_factor: 0`) : capteurs caméra moins
   réguliers, mission non vérifiée dans ce mode.
+
+## D10 — Démo M8 : launch dédié + nœud de visualisation (session 9)
+- Contexte : l'humain doit pouvoir regarder la mission ; RViz n'a rien à afficher du verger
+  (pas de carte) et la mission ne publie que des états texte.
+- Décision : `demo.launch.py` inclut `mission.launch.py` (GUI Gazebo par défaut) + RViz
+  (`rviz/demo.rviz`, repère fixe `odom` ≡ monde) + nœud `mission_viz` (`applepic_mission`) qui publie
+  `~/markers` (troncs, couronnes, cercles de recherche, dépôt, étiquettes depuis `orchard.yaml`,
+  texte d'état au-dessus du robot) et `~/path` (trajectoire décimée à 5 cm, depuis `/odom`). Logique
+  pure dans `viz.py` (testée). Argument `rtf` pour accélérer via `/world/orchard/set_physics`
+  (défaut 1 : la GUI suit sans difficulté). Vérification automatique headless :
+  `scripts/check_demo.sh` (contenu des topics RViz pendant la mission).
+- Écarté : afficher les pommes réelles (vérité terrain) dans RViz (ce serait tricher visuellement
+  sur la perception) ; plugin RViz personnalisé pour le HUD (texte 3D suffisant) ;
+  enregistrement vidéo automatique (pas d'outil de capture d'écran installé, pas de Xvfb).

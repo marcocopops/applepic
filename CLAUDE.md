@@ -26,6 +26,11 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `make e2e` / `scripts/e2e_mission.sh [min_ratio sim_limit rtf capacity wall_timeout]` : scénario M7 de bout en bout
   headless (1 boucle, RTF 3 par défaut, ~5 min), PASS/FAIL, métriques `artifacts/e2e_metrics.json`,
   tracé `artifacts/e2e_trajectory.png` (pommes ramassées / restantes)
+- `make demo [DEMO_RTF=2]` / `ros2 launch applepic_bringup demo.launch.py [rtf:=2 rviz:=false headless:=true]` :
+  démo M8 (GUI Gazebo + RViz, nœud `mission_viz` : `/mission_viz/markers|path`)
+- `scripts/check_demo.sh [timeout rtf]` : démo headless sans RViz, valide marqueurs/HUD/trajectoire
+- Capturer une fenêtre (pas de Xvfb/ImageMagick) : `DISPLAY=:1 xwd -id <win>` (id via `xwininfo -root -tree`),
+  puis décodage XWD en Python (PIL ne lit pas le XWD)
 - `ros2 launch applepic_bringup mission.launch.py [headless:=false capacity:=10 loops:=1]` : simu + détection + mission
 - `ros2 launch applepic_bringup navigation.launch.py loops:=1 [headless:=false]` : simu + suivi de boucle
 - `scripts/capture_camera.py out.png` : sauve une image de `/camera/image_raw` (simu lancée)
@@ -41,7 +46,7 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `src/applepic_mission` : `basket.py`, `picking.py`, `apple_tracker.py` (fusion des détections), `approach.py`
   (préhenseur → point), nœuds `gripper` (ramassage magique via gz-transport Python : `/basket/count|full|picked`,
   srv `/basket/unload`), `apple_picker` (démo M5), `mission.py` (machine à états pure) et nœud `mission`
-  (`/mission/state|status|stats`)
+  (`/mission/state|status|stats`), `viz.py` + nœud `mission_viz` (marqueurs RViz de la démo)
 - `src/applepic_bringup` : launch files de haut niveau
 Tous les paquets sont `ament_python`. La logique pure (sans rclpy) est dans des modules
 séparés testables par pytest sans ROS lancé.

@@ -116,10 +116,31 @@
   - `make test` : 69 tests, 0 échec (4 tests `metrics`).
 - Limites : une seule configuration (seed 42) testée ; la mission reste lente en temps simulé (~15 min).
 
-## Prochaine tâche : M8 — Démo GUI Gazebo + RViz
-- Launch `applepic_bringup/launch/demo.launch.py` : mission avec GUI Gazebo + RViz (config `.rviz` :
-  RobotModel, TF, image caméra `/apples/debug_image`, PoseArray `/apples/detections`, trajectoire
-  (nav_msgs/Path à publier depuis `/odom` si besoin), marqueurs arbres/dépôt optionnels).
-- Vérifier en headless ce qui peut l'être (launch démarre, RViz charge la config sans erreur avec
-  `QT_QPA_PLATFORM=offscreen`), puis instructions pas à pas dans le README.
-- Ensuite M9 : accélérer la recherche (sauter les points déjà couverts), GPS bruité.
+## Session 9 (2026-10-26)
+- M8 fait (code écrit par la session précédente, interrompue avant commit ; repris, vérifié,
+  commité) : `applepic_bringup/launch/demo.launch.py` (mission + GUI Gazebo + RViz, args `headless`,
+  `rviz`, `rtf`, `x`, `y`, `yaw`, `capacity`, `loops`, `search_radius`), config `rviz/demo.rviz`
+  (marqueurs, trajectoire, RobotModel, pommes détectées, image caméra annotée), module pur
+  `applepic_mission/viz.py` + nœud `mission_viz` (`/mission_viz/markers` latched, `/mission_viz/path`),
+  cible `make demo` (`DEMO_RTF`), section « Démo pas à pas » du README.
+  - Ménage : la session précédente avait laissé **deux démos orphelines** tournant en parallèle
+    (même domaine ROS → `/clock` incohérent, « jump back in time » en boucle, captures inutilisables) ;
+    arrêtées par PGID.
+  - Vérifié : `scripts/check_demo.sh` (+ `scripts/eval_demo.py`) → PASS : 26 marqueurs de scène + HUD,
+    trajectoire qui croît, 1ʳᵉ pomme ramassée, RTF 2 appliqué, aucune erreur dans le log.
+  - Vérifié GUI : `make demo`-équivalent sur DISPLAY :1 pendant 90 s → fenêtres « Gazebo Sim » et RViz
+    ouvertes, aucun saut de temps, 4 pommes ramassées ; captures `artifacts/demo_{rviz,gazebo}.png`
+    (HUD « SEARCH / basket 4/10 », cercles, dépôt, trajectoire visibles ; couleurs faussées par mon
+    décodeur XWD, pas par la démo). Arrêt par PGID, aucun processus restant.
+  - `make test` : 73 tests, 0 échec (4 tests `viz`).
+- Non vérifié : démo GUI avec `rtf:=2` ; le texte d'état ne rafraîchit distance/temps qu'aux transitions.
+- Leçon : enregistrer `$!` avec `set -m` exécuté AVANT la ligne backgroundée (sinon mauvais PGID,
+  cf. CLAUDE.md) — je me suis encore fait avoir une fois, rattrapé via `ps -o pgid`.
+
+## Prochaine tâche : M9 — accélérer la recherche autour des arbres
+- Dans `mission.py` : sauter les points de recherche dont la zone de vue est déjà couverte (pistes
+  connues, toutes ramassées) ou arrêter le tour quand le nombre de pommes vues/ramassées est stable
+  après N points ; viser une boucle < 600 s simulées sans perdre de pommes (`make e2e` doit rester
+  29/29). Mettre à jour les tests unitaires de transitions.
+- Ensuite : HUD rafraîchi en continu (publier `/mission/stats` à 1 Hz), GPS bruité (navsat +
+  robot_localization : non installé → TODO_HUMAIN), autres seeds de verger dans `make e2e`.

@@ -25,11 +25,20 @@
 - M7 : **test de bout en bout chronométré** `make e2e` (headless, simulation accélérée ×3, ~5 min
   réelles) : PASS si ≥ 80 % des pommes déposées en ≤ 1200 s simulées, recoupé avec Gazebo. Dernier
   run : 29/29 déposées, 888 s simulées, 208 m (`artifacts/e2e_metrics.json`, `artifacts/e2e_trajectory.png`).
+- M8 : **démo `make demo`** (GUI Gazebo + RViz : verger, trajectoire, détections, texte d'état
+  au-dessus du robot, image caméra annotée). Vérifié : lancée sur l'écran de cette machine pendant
+  90 s (deux fenêtres ouvertes, 4 pommes ramassées, captures `artifacts/demo_{rviz,gazebo}.png`,
+  couleurs faussées par l'outil de capture) et en headless par `scripts/check_demo.sh` (PASS).
 
 ## 2. Lancer
+**Démo (le plus simple)** : instructions pas à pas dans le `README.md`, section « Démo pas à pas ».
 ```bash
 cd ~/Documents/ApplePic
-make build && make test
+make test
+make demo           # mission complète, fenêtres Gazebo + RViz ; Ctrl+C pour arrêter
+```
+Autres commandes :
+```bash
 make world          # régénère le verger (config: src/applepic_gazebo/config/orchard.yaml)
 gz sim src/applepic_gazebo/worlds/orchard.sdf   # voir le verger seul (GUI)
 source /opt/ros/jazzy/setup.bash && source install/setup.bash
@@ -48,7 +57,6 @@ ros2 launch applepic_bringup mission.launch.py headless:=false   # MISSION COMPL
 ros2 topic echo /mission/status   # transitions de la mission (autre terminal)
 make e2e   # test de bout en bout headless chronométré (~5 min) -> PASS/FAIL + métriques
 ```
-(la démo avec RViz arrivera au jalon M8)
 
 ## 3. Décisions à relire
 - D1 : environnement natif plutôt que Docker (voir `docs/DECISIONS.md`).
@@ -63,10 +71,12 @@ make e2e   # test de bout en bout headless chronométré (~5 min) -> PASS/FAIL +
   chaque arbre ; le robot ne vise une pomme que si son trajet reste à ≥ 0,45 m du tronc.
 - D9 : test M7 chronométré en temps simulé, simulation accélérée ×3 ; seuil 80 % et limite 1200 s
   (modifiables : `make e2e E2E_MIN_RATIO=0.9 E2E_SIM_LIMIT=1000`).
+- D10 : démo = même mission que M7 + nœud `mission_viz` (marqueurs RViz) ; vitesse réelle par
+  défaut (`make demo DEMO_RTF=2` pour accélérer, non testé avec la GUI).
 
 ## 4. Cassé / bloqué
-- Rien pour l'instant. Voir `docs/TODO_HUMAIN.md` (optionnel).
+- Rien de bloquant. Voir `docs/TODO_HUMAIN.md` (optionnel).
+- Le texte d'état RViz n'actualise distance/temps qu'aux changements d'état (cosmétique).
 
 ## 5. Prochaines étapes
-- M8 démo GUI Gazebo + RViz avec instructions pas à pas.
 - Accélérer la mission (une boucle ≈ 15 min : beaucoup de temps passé à regarder des zones vides).
