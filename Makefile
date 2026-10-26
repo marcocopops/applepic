@@ -9,6 +9,7 @@ SIM_SECONDS ?= 20
 E2E_MIN_RATIO ?= 0.8
 E2E_SIM_LIMIT ?= 1200
 E2E_RTF ?= 3
+E2E_SEED ?=
 DEMO_RTF ?= 1
 
 ifeq ($(USE_DOCKER),1)
@@ -28,8 +29,9 @@ test: build
 	$(RUN) '$(SETUP) && colcon test --return-code-on-test-failure --event-handlers console_direct- && colcon test-result --verbose'
 
 # M7 end-to-end scenario (~5 min wall at RTF 3): metrics in artifacts/e2e_metrics.json.
+# E2E_SEED=<n> regenerates the apples with that seed (world in artifacts/, not committed).
 e2e: build
-	$(RUN) 'scripts/e2e_mission.sh $(E2E_MIN_RATIO) $(E2E_SIM_LIMIT) $(E2E_RTF)'
+	$(RUN) 'scripts/e2e_mission.sh $(E2E_MIN_RATIO) $(E2E_SIM_LIMIT) $(E2E_RTF) 10 1800 $(E2E_SEED)'
 
 # M8 demo: full mission with the Gazebo GUI + RViz (needs a display, native only).
 demo: build

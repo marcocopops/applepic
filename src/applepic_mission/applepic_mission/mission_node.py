@@ -6,7 +6,8 @@ magic pick itself is done by the `gripper` node.
 
 Subscribes: /odom, /apples/detections (PoseArray, world frame), /basket/picked, /basket/full.
 Publishes:  /cmd_vel, ~/state (std_msgs/String, latched), ~/status (std_msgs/String),
-            ~/stats (std_msgs/String, JSON, latched, refreshed on every transition).
+            ~/stats (std_msgs/String, JSON, latched, on every transition and every
+            `stats_period` s so the HUD distance/time stay live).
 Client:     /basket/unload (std_srvs/Trigger).
 """
 import csv
@@ -43,6 +44,7 @@ class MissionNode(Node):
         self.declare_parameter('min_views', 2)
         self.declare_parameter('trajectory_csv', '')
         self.declare_parameter('exit_when_done', False)
+        self.declare_parameter('stats_period', 1.0)
         defaults = MissionParams()
         for name, value in vars(defaults).items():
             self.declare_parameter(name, value)
@@ -63,6 +65,8 @@ class MissionNode(Node):
         self.unload_future = None
         self.last_state = None
         self.last_transition_count = 0
+        self.stats_period = float(gp('stats_period').value)
+        self.last_stats_time = None
 
         self.csv_file = None
         path = gp('trajectory_csv').value
@@ -143,7 +147,7 @@ class MissionNode(Node):
             return
         now = self._now()
         if self.start_time is None:
-            self.start_time = now
+            self.start_time = self.last_stats_time = now
         v, w = self.mission.step(self.pose, now)
         cmd = Twist()
         cmd.linear.x, cmd.angular.z = v, w
@@ -160,10 +164,18 @@ class MissionNode(Node):
                 self._status(f'-> {state} (tree {tree}){": " + note if note else ""}')
             self.last_transition_count = len(transitions)
             self.state_pub.publish(String(data=self.mission.state))
-            stats = json.dumps(self._stats())
-            self.stats_pub.publish(String(data=stats))
+            stats = self._publish_stats(now)
             if self.done:
                 self._status(f'mission done: {stats}')
+        elif (self.stats_period > 0 and not self.done
+              and now - self.last_stats_time >= self.stats_period):
+            self._publish_stats(now)
+
+    def _publish_stats(self, now):
+        self.last_stats_time = now
+        stats = json.dumps(self._stats())
+        self.stats_pub.publish(String(data=stats))
+        return stats
 
 
 def main():

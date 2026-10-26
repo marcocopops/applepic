@@ -14,7 +14,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(os.path.join(
             get_package_share_directory('applepic_bringup'), 'launch', 'sim.launch.py')),
         launch_arguments={
-            name: LaunchConfiguration(name) for name in ('headless', 'x', 'y', 'yaw')
+            name: LaunchConfiguration(name) for name in ('headless', 'world', 'x', 'y', 'yaw')
         }.items(),
     )
     detector = Node(
@@ -25,6 +25,8 @@ def generate_launch_description():
     )
     return LaunchDescription([
         DeclareLaunchArgument('headless', default_value='true'),
+        DeclareLaunchArgument('world', default_value='orchard.sdf',
+                              description='SDF file name in applepic_gazebo/worlds or absolute path'),
         DeclareLaunchArgument('x', default_value='0.0'),
         DeclareLaunchArgument('y', default_value='0.0'),
         DeclareLaunchArgument('yaw', default_value='0.0'),

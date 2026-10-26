@@ -31,12 +31,31 @@ def gz_models():
             if line.strip().startswith('-')}
 
 
+def gz_pose(name):
+    """[x, y] of a gz model from `gz model -m <name> -p`, or None."""
+    try:
+        out = subprocess.run(['gz', 'model', '-m', name, '-p'], capture_output=True, text=True,
+                             timeout=20).stdout
+    except subprocess.TimeoutExpired:
+        return None
+    lines = out.splitlines()
+    for i, line in enumerate(lines):
+        if 'XYZ' in line and i + 1 < len(lines):
+            vals = lines[i + 1].strip().strip('[]').split()
+            try:
+                return [round(float(v), 3) for v in vals[:2]]
+            except ValueError:
+                return None
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--manifest', default='src/applepic_gazebo/worlds/orchard_apples.yaml')
     ap.add_argument('--min-ratio', type=float, default=0.8)
     ap.add_argument('--sim-limit', type=float, default=1200.0, help='simulated seconds')
     ap.add_argument('--timeout', type=float, default=1800.0, help='wall seconds')
+    ap.add_argument('--seed', type=int, default=None, help='orchard seed, recorded in the metrics')
     ap.add_argument('--out', default='artifacts/e2e_metrics.json')
     args = ap.parse_args()
     with open(args.manifest) as f:
@@ -72,11 +91,15 @@ def main():
                   f'state {stats[0].get("state")}, tree {stats[0].get("tree")}', flush=True)
     wall = time.monotonic() - start
     models = gz_models()
+    left_poses = {n: gz_pose(n) for n in manifest if n in models}
     node.destroy_node()
     rclpy.try_shutdown()
 
     m = evaluate(stats[0], manifest, picked, models, sim_s(), wall, args.min_ratio,
                  args.sim_limit)
+    if args.seed is not None:
+        m['seed'] = args.seed
+    m['apples_left_final_xy'] = left_poses
     with open(args.out, 'w') as f:
         json.dump(m, f, indent=2)
     print(json.dumps(m, indent=2))
