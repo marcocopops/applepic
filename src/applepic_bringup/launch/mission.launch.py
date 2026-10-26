@@ -1,0 +1,55 @@
+"""Full mission: simulation + apple detector + magic gripper + mission state machine (M6)."""
+import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+
+
+def generate_launch_description():
+    perception = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(
+            get_package_share_directory('applepic_bringup'), 'launch', 'perception.launch.py')),
+        launch_arguments={
+            name: LaunchConfiguration(name) for name in ('headless', 'x', 'y', 'yaw')
+        }.items(),
+    )
+    gripper = Node(
+        package='applepic_mission',
+        executable='gripper',
+        parameters=[{'use_sim_time': True,
+                     'capacity': ParameterValue(LaunchConfiguration('capacity'), value_type=int)}],
+        output='screen',
+    )
+    mission = Node(
+        package='applepic_mission',
+        executable='mission',
+        parameters=[{
+            'use_sim_time': True,
+            'loops': ParameterValue(LaunchConfiguration('loops'), value_type=int),
+            'search_radius': ParameterValue(LaunchConfiguration('search_radius'),
+                                            value_type=float),
+            'trajectory_csv': LaunchConfiguration('trajectory_csv'),
+            'exit_when_done': ParameterValue(LaunchConfiguration('exit_when_done'),
+                                             value_type=bool),
+        }],
+        output='screen',
+    )
+    return LaunchDescription([
+        DeclareLaunchArgument('headless', default_value='true'),
+        DeclareLaunchArgument('x', default_value='0.0'),
+        DeclareLaunchArgument('y', default_value='0.0'),
+        DeclareLaunchArgument('yaw', default_value='0.0'),
+        DeclareLaunchArgument('capacity', default_value='10'),
+        DeclareLaunchArgument('loops', default_value='1', description='0 = forever'),
+        DeclareLaunchArgument('search_radius', default_value='2.2'),
+        DeclareLaunchArgument('trajectory_csv', default_value=''),
+        DeclareLaunchArgument('exit_when_done', default_value='false'),
+        perception,
+        gripper,
+        mission,
+    ])

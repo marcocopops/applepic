@@ -64,6 +64,14 @@ def _detour(a, b, obstacles, clearance, depth):
             + _detour(via, b, obstacles, clearance, depth - 1))
 
 
+def plan_path(a, b, obstacles, clearance, depth=3):
+    """Return the waypoints from a to b (b included, a excluded) keeping `clearance` from obstacles.
+
+    Detours are only added for obstacles the straight segment passes too close to.
+    """
+    return _detour(tuple(a), tuple(b), obstacles, clearance, depth) + [tuple(b)]
+
+
 def build_route(config, approach_distance=2.2, clearance=2.0, start=None, end_at_depot=True):
     """Return a list of (x, y, label) waypoints for one orchard loop.
 

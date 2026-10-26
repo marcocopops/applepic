@@ -31,6 +31,7 @@ setup(
         'console_scripts': [
             'gripper = applepic_mission.gripper:main',
             'apple_picker = applepic_mission.apple_picker:main',
+            'mission = applepic_mission.mission_node:main',
         ],
     },
 )

@@ -37,7 +37,7 @@ def main():
     ax.set_aspect('equal')
     ax.set_xlabel('x (m)')
     ax.set_ylabel('y (m)')
-    ax.set_title('ApplePic waypoint loop')
+    ax.set_title(sys.argv[4] if len(sys.argv) > 4 else 'ApplePic waypoint loop')
     ax.legend(loc='lower right', frameon=False)
     fig.savefig(png_path, dpi=100, bbox_inches='tight')
     return 0 if min_clear > 1.0 else 1
