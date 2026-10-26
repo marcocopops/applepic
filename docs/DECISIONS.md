@@ -34,3 +34,16 @@
   voit le sol d'environ 0,2 à 2,5 m devant ; le préhenseur apparaît en bas de l'image.
   Préhenseur = simple frame `gripper_link` (le ramassage magique M5 se basera sur sa distance aux pommes).
 - Écarté : roues + gz_ros2_control (inutile pour un POC), panier physique avec collisions.
+
+## D5 — Navigation par contrôleur maison (session 4)
+- Contexte : M3, Nav2 non installé, monde plat sans obstacles autres que les troncs, pose vérité terrain.
+- Décision : `applepic_navigation/controller.py` (rotation sur place si erreur de cap > 0,6 rad, puis
+  avance proportionnelle à la distance, plafonnée à 0,5 m/s ; tolérance 0,15 m) + `route.py` qui
+  construit la boucle : un point d'approche par arbre à 2,2 m du tronc **côté intérieur de la boucle**
+  (vers le centroïde des arbres, donc hors de l'anneau de pommes ≤ 1,6 m), puis retour au dépôt ; tout
+  segment passant à moins de 2,0 m d'un tronc reçoit un point de détour (`via`). Le nœud
+  `waypoint_follower` lit les arbres dans `applepic_gazebo/config/orchard.yaml`.
+- Écarté : Nav2 (non installé, lourd pour une boucle de 6 points sur sol plat), pure pursuit
+  (inutile à cette échelle), carte d'occupation.
+- Conséquence pour M6 : la mission réutilisera `compute_command` pour aller aux pommes et aux points
+  de recherche ; le nœud `waypoint_follower` sert de démo/validation M3.

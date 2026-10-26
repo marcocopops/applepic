@@ -31,11 +31,27 @@
 - `check_drive.sh` : suppression du `pkill -f` (règle 7) → arrêt par groupe de processus (`set -m`, PGID = `$!`).
 - Avertissement bénin : `gz_frame_id` « not defined in SDF » au chargement, mais le frame_id est bien appliqué.
 
-## Prochaine tâche : M3 — Navigation
-- Contrôleur maison (Nav2 non installé) : module pur `applepic_navigation/controller.py`
-  (suivi de point : rotation sur place si erreur de cap > seuil, puis avance proportionnelle ;
-  tolérance d'arrivée) + nœud `waypoint_follower` qui lit `/odom` (repère monde), publie `/cmd_vel`,
-  prend la liste d'arbres depuis `applepic_gazebo/config/orchard.yaml` (avec un décalage d'approche
-  pour ne pas percuter le tronc, ex. s'arrêter à ~2 m de l'arbre).
-- Tests pytest du contrôleur (convergence sur un modèle unicycle simulé en Python).
-- Vérifier en simu headless : le robot fait la boucle des 6 arbres et revient au dépôt (log des poses).
+## Session 4 (2026-10-26)
+- M3 fait : contrôleur de point `applepic_navigation/controller.py`, construction de route
+  `route.py` (points d'approche à 2,2 m des troncs côté intérieur + détours automatiques), nœud
+  `waypoint_follower` (params `loops` (0 = infini), `dwell`, `trajectory_csv`, statut sur
+  `/waypoint_follower/status`), launch `applepic_bringup/launch/navigation.launch.py` (simu + suivi).
+  - Vérifié : `scripts/check_navigation.sh` → boucle complète en simu headless : les 6 arbres puis
+    le dépôt atteints (erreur finale ≤ 0,15 m), 40,5 m parcourus en 102 s simulées, distance minimale
+    aux troncs 2,09 m ; tracé `artifacts/nav_trajectory.png`. `navigation.launch.py` vérifié aussi
+    (démarre et atteint les premiers points), arrêt par PGID sans processus orphelin.
+  - `make test` : 24 tests, 0 échec (7 tests navigation dont une simulation unicycle de la boucle).
+- Limite connue : la route d'entrée depuis le dépôt fait un petit zigzag (2 détours autour de l'arbre 0) ;
+  sans gravité, à affiner si besoin.
+
+## Prochaine tâche : M4 — Perception HSV
+- Module pur `applepic_perception/detector.py` : seuillage HSV du rouge (deux plages de teinte, 0–10 et
+  170–180 dans OpenCV), ouverture morphologique, contours → centroïdes + rayon apparent, filtre de taille.
+  OpenCV 4.6 et numpy sont disponibles ; `cv_bridge`, `image_geometry`, `tf2_ros` aussi.
+- Module pur `projection.py` : rayon pixel → repère caméra via la matrice K (`/camera/camera_info`),
+  puis intersection avec le plan z = rayon de pomme (0,04 m) dans le repère monde à partir de la TF
+  `odom → camera_optical_frame` (odom ≡ monde, D4).
+- Nœud `apple_detector` : publie `/apples/detections` (geometry_msgs/PoseArray, frame `odom`) + image de
+  debug annotée. Tests : images synthétiques (disques rouges sur fond vert) + projection avec extrinsèques
+  connues ; puis vérif en simu en comparant aux positions du manifeste `worlds/orchard_apples.yaml`
+  (robot spawné face à l'arbre 0, ex. `x:=2.6 y:=4.0`, comme en session 3).

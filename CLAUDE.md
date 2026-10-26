@@ -18,6 +18,8 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `make world` : régénère le monde SDF du verger depuis la config YAML
 - `make sim-headless` : lance la simu headless pendant `SIM_SECONDS` (défaut 20)
 - `scripts/check_drive.sh [x y yaw]` : smoke test conduite (cmd_vel → odom) + captures caméra
+- `scripts/check_navigation.sh [timeout]` : boucle complète headless (waypoint_follower) + `artifacts/nav_trajectory.png`
+- `ros2 launch applepic_bringup navigation.launch.py loops:=1 [headless:=false]` : simu + suivi de boucle
 - `scripts/capture_camera.py out.png` : sauve une image de `/camera/image_raw` (simu lancée)
 - Arrêter une simu lancée en arrière-plan : par PGID (`set -m` puis `kill -INT -- -$PID`), jamais par motif.
 - Shell manuel : `source /opt/ros/jazzy/setup.bash && source install/setup.bash`
@@ -25,7 +27,7 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 ## Arborescence
 - `src/applepic_description` : URDF/xacro du robot
 - `src/applepic_gazebo` : générateur de monde (verger), mondes SDF, bridge ros_gz
-- `src/applepic_navigation` : suivi de waypoints
+- `src/applepic_navigation` : `controller.py` (suivi de point), `route.py` (boucle d'arbres), nœud `waypoint_follower`
 - `src/applepic_perception` : détection HSV + projection pixel→sol
 - `src/applepic_mission` : machine à états de mission
 - `src/applepic_bringup` : launch files de haut niveau
