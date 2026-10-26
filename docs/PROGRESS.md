@@ -60,17 +60,38 @@
 - Limites : champ utile ~0,4–2,3 m devant le robot ; pas de suivi/fusion temporelle des détections
   (chaque image republie toutes les pommes vues) ; pommes au contact fusionneraient en un blob.
 
-## Prochaine tâche : M5 — Ramassage magique
-- Module pur `applepic_mission/apple_tracker.py` (ou dans perception) : fusion des détections
-  successives en une liste de pommes connues en repère monde (association au plus proche < 0,15 m,
-  moyenne glissante, compteur de vues ≥ 2 pour confirmer, marquage « ramassée »). Tests pytest.
-- Approche : réutiliser `applepic_navigation.controller.compute_command` pour amener `gripper_link`
-  (0,46 m devant `base_footprint`) sur la pomme : viser un point tel que le préhenseur coïncide avec
-  la pomme (cible base = pomme − 0,46 m dans l'axe d'approche). Attention : la pomme sort du champ
-  caméra sous ~0,4 m → finir l'approche en boucle ouverte sur la position mémorisée.
-- Ramassage : nœud `gripper` qui, quand la distance préhenseur–pomme (pose vérité terrain des pommes ou
-  position estimée) < ~6 cm, supprime l'entité via le service gz `/world/orchard/remove`
-  (plugin UserCommands déjà dans le monde, D3 ; appel par `gz service` ou ros_gz `RemoveEntity` si
-  disponible dans Jazzy), incrémente le compteur, publie `/basket/count`, refuse au-delà de la capacité.
-- Vérif : script headless qui spawne le robot près de l'arbre 0, ramasse ≥ 1 pomme, vérifie que le
-  modèle `apple_t0_*` a disparu (`gz model --list`) et que le compteur vaut 1.
+## Session 6 (2026-10-26)
+- M5 fait (dans `applepic_mission`) : modules purs `basket.py` (capacité), `picking.py` (position du
+  préhenseur, pomme à portée), `apple_tracker.py` (fusion des détections : association gloutonne
+  < 0,15 m, moyenne glissante, confirmation à 2 vues, pistes conservées hors champ, états
+  picked/failed), `approach.py` (amène le préhenseur, 0,46 m devant la base, sur un point ; recule
+  si dépassement). Nœuds `gripper` (ramassage magique : pose vérité terrain des pommes via le topic gz
+  `/world/orchard/pose/info`, suppression via le service gz `/world/orchard/remove` avec les bindings
+  Python gz-transport ; `/basket/count`, `/basket/full`, `/basket/picked`, service `/basket/unload`)
+  et `apple_picker` (va vers la pomme confirmée la plus proche, abandon après 30 s d'approche ou 3 s
+  sur place sans ramassage). Launch `applepic_bringup/launch/picking.launch.py` (args `x`, `y`, `yaw`,
+  `capacity`, `headless`).
+  - Vérifié : `scripts/check_picking.sh` (+ `scripts/eval_picking.py` qui recoupe `/basket/picked`,
+    `/basket/count` et `gz model --list`) : arbre 0 depuis (2,6 ; 4,0) → 2/2 pommes visibles ramassées
+    en 16 s ; arbre 4 depuis (9,6 ; 9,5 ; π/2) → 4/4 en 25 s ; modèles supprimés de gz, compteur
+    cohérent. Capacité 1 : le picker s'arrête (« basket full ») ; appel manuel de `/basket/unload` →
+    compteur à 0 et reprise du ramassage (2ᵉ pomme ramassée).
+  - `make test` : 53 tests, 0 échec (15 tests mission dont convergence de l'approche en simulation unicycle).
+- Limites : le picker ne cherche pas (il ne ramasse que les pommes déjà vues) ; le châssis (bas à
+  5 cm, pomme haute de 8 cm) peut pousser des pommes situées sur les côtés du chemin ; ramassage
+  automatique dès qu'une pomme passe sous le préhenseur, même en transit (voulu).
+
+## Prochaine tâche : M6 — Machine à états de mission
+- Module pur `applepic_mission/mission.py` : états GOTO_TREE → SEARCH → PICK → (arbre suivant) ;
+  fin de boucle → GOTO_BASE → UNLOAD → nouvelle boucle ; panier plein → GOTO_BASE prioritaire puis
+  retour à l'arbre en cours. Transitions pilotées par des événements (arrivé, pomme confirmée, ramassée,
+  échec, recherche terminée, panier plein) et testées unitairement sans ROS.
+- SEARCH : motif de points autour de l'arbre (ex. 8 points sur un cercle de rayon ~2,2 m, robot
+  orienté vers le tronc pour voir l'anneau de pommes 0,45–1,6 m ; ou rotation sur place à chaque point),
+  rayon configurable ; dès qu'une pomme confirmée est dans le rayon de l'arbre → PICK (réutiliser
+  `AppleTracker` + `approach_command`), puis reprendre la recherche ; fin quand tout le motif est fait
+  sans nouvelle pomme. Attention aux troncs : ne jamais viser un point à < ~0,5 m du tronc (pommes à
+  ≥ 0,45 m : approche par l'extérieur).
+- Nœud `mission` qui remplace `apple_picker` (réutilise `gripper`), route de `applepic_navigation.route`
+  pour GOTO_TREE/GOTO_BASE, appel `/basket/unload` dans la zone de dépôt. Launch `mission.launch.py`.
+- Vérif : une boucle complète headless, compter les pommes ramassées/déposées (préparer M7).

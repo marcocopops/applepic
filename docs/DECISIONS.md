@@ -58,3 +58,20 @@
 - Écarté : détection de cercles (Hough, fragile avec l'ombrage), estimation de distance par le rayon
   apparent (moins précise que la projection sur sol plat), message custom (PoseArray suffit, évite un
   paquet ament_cmake d'interfaces).
+
+## D7 — Ramassage magique par suppression d'entité, pose vérité terrain des pommes (session 6)
+- Contexte : M5, ramassage « magique » autorisé ; il faut savoir quand le préhenseur touche une pomme.
+- Décision : nœud `gripper` qui compare la position du préhenseur (`/odom` + 0,46 m dans l'axe) aux
+  poses **vérité terrain** des pommes lues sur le topic gz `/world/orchard/pose/info` ; sous 7 cm
+  (horizontal), il supprime le modèle via le service gz `/world/orchard/remove` (bindings Python
+  `gz.transport13` / `gz.msgs10` livrés avec Harmonic, pas de bridge à configurer) et incrémente le
+  panier. Ramassage automatique dès qu'une pomme est à portée (même en transit), refusé si panier plein ;
+  `/basket/unload` (std_srvs/Trigger) vide le panier, la mission décidera où l'appeler.
+  Le préhenseur dépasse de 6 cm l'avant du châssis : une pomme centrée est ramassée avant d'être touchée.
+- Côté décision : `apple_picker` fusionne les détections (`AppleTracker`) et approche avec
+  `approach.py` (robot face à la pomme à 0,46 m), finissant en aveugle sur la position mémorisée quand
+  la pomme sort du champ caméra.
+- Écarté : DetachableJoint (il faut une articulation par pomme déclarée dans le SDF, et une pomme
+  attachée resterait visible devant la caméra), position estimée par la caméra pour déclencher
+  (la vérité terrain simule un capteur de contact du préhenseur), `ros_gz_sim remove`/`delete_entity`
+  en sous-processus (lent, et `remove` boucle s'il ne trouve pas de monde).

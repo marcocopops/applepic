@@ -14,6 +14,10 @@
 - M4 : détection des pommes par couleur dans l'image caméra et position au sol en repère monde ;
   vérifié en headless contre les positions réelles (`scripts/check_perception.sh`) : erreur ~5 mm à
   l'arrêt, ≤ 1,5 cm en rotation, aucun faux positif (images annotées `artifacts/perception_*.png`).
+- M5 : le robot va chercher les pommes qu'il voit et les ramasse (« magiquement » : la pomme disparaît
+  du monde quand le préhenseur passe dessus), compteur et capacité du panier, vidage par service ;
+  vérifié en headless par `scripts/check_picking.sh` (arbre 0 : 2/2 pommes visibles, arbre 4 : 4/4,
+  modèles bien supprimés de Gazebo, panier plein → arrêt, vidage → reprise).
 
 ## 2. Lancer
 ```bash
@@ -30,6 +34,9 @@ scripts/check_navigation.sh   # test automatique headless de la boucle (+ tracé
 ros2 launch applepic_bringup perception.launch.py headless:=false x:=2.6 y:=4.0   # détection
 ros2 run rqt_image_view rqt_image_view /apples/debug_image   # image annotée (autre terminal)
 scripts/check_perception.sh   # test automatique headless de la détection
+ros2 launch applepic_bringup picking.launch.py headless:=false x:=9.6 y:=9.5 yaw:=1.57   # ramassage
+ros2 topic echo /basket/count   # compteur du panier (autre terminal)
+scripts/check_picking.sh   # test automatique headless du ramassage
 ```
 (la démo complète arrivera au jalon M8)
 
@@ -40,10 +47,12 @@ scripts/check_perception.sh   # test automatique headless de la détection
 - D5 : navigation par contrôleur maison (pas Nav2) ; le robot passe à 2,2 m des troncs côté
   intérieur de la boucle pour ne pas rouler sur les pommes.
 - D6 : perception HSV + projection sur sol plat ; publication brute des pommes vues (pas de suivi).
+- D7 : ramassage = suppression du modèle de pomme quand le préhenseur est à < 7 cm (pose vérité
+  terrain des pommes, comme un capteur de contact) ; ramassage automatique même en transit.
 
 ## 4. Cassé / bloqué
 - Rien pour l'instant. Voir `docs/TODO_HUMAIN.md` (optionnel).
 
 ## 5. Prochaines étapes
-- M5 ramassage magique (suivi des pommes, approche, suppression de l'entité, compteur du panier),
-  puis M6 machine à états de mission et M7 test de bout en bout.
+- M6 machine à états de mission (aller à l'arbre, chercher autour, ramasser, arbre suivant, dépôt),
+  puis M7 test de bout en bout chronométré et M8 démo avec GUI.
