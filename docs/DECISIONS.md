@@ -96,3 +96,18 @@
     GOTO_BASE → UNLOAD → nouvelle boucle ou DONE (`loops`, 0 = infini).
 - Écarté : Nav2/BehaviorTree (non installé, surdimensionné), spirale ou rotation sur place depuis
   l'arbre (plus de risque d'écraser les pommes), SMACH/YASMIN (dépendance de plus pour 6 états).
+
+## D9 — Scénario de bout en bout M7 accéléré par RTF (session 8)
+- Contexte : une boucle de mission dure ~15 min simulées ; il faut un test M7 chronométré,
+  reproductible et rapide à relancer.
+- Décision : `scripts/e2e_mission.sh` (cible `make e2e`) lance la mission headless (1 boucle, départ
+  au dépôt) et règle le facteur temps réel à 3 via le service gz `/world/orchard/set_physics`
+  (le rendu caméra plafonne vers ~4 sur cette machine). Le chronométrage est en **temps simulé**
+  (depuis la première transition de la mission), limite 1200 s, seuil de pommes déposées 80 %.
+  Score calculé par le module pur `applepic_mission/metrics.py` (testé par pytest) : PASS si mission
+  DONE, ratio atteint, dans la limite, gz interrogé, pommes signalées ramassées absentes de gz et
+  compteurs cohérents. Sorties `artifacts/e2e_metrics.json` + tracé `e2e_trajectory.png`.
+  Remplace `check_mission.sh` / `eval_mission.py`.
+- Écarté : launch_testing (plus lourd à déboguer, pas de gain ici) ; chronométrage en temps réel
+  (dépend de la charge machine) ; RTF illimité (`real_time_factor: 0`) : capteurs caméra moins
+  réguliers, mission non vérifiée dans ce mode.

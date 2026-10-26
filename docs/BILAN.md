@@ -21,7 +21,10 @@
 - M6 : **la mission complète tourne seule** : pour chaque pommier, le robot fait le tour (8 points
   à 2,2 m, face au tronc), ramasse les pommes vues, passe à l'arbre suivant ; panier plein → dépôt,
   vidage, retour à l'arbre ; fin de boucle → dépôt. Vérifié en headless par `scripts/check_mission.sh` :
-  29/29 pommes ramassées et déposées en ~15 min simulées, 208 m (`artifacts/mission_trajectory.png`).
+  29/29 pommes ramassées et déposées en ~15 min simulées, 208 m.
+- M7 : **test de bout en bout chronométré** `make e2e` (headless, simulation accélérée ×3, ~5 min
+  réelles) : PASS si ≥ 80 % des pommes déposées en ≤ 1200 s simulées, recoupé avec Gazebo. Dernier
+  run : 29/29 déposées, 888 s simulées, 208 m (`artifacts/e2e_metrics.json`, `artifacts/e2e_trajectory.png`).
 
 ## 2. Lancer
 ```bash
@@ -43,7 +46,7 @@ ros2 topic echo /basket/count   # compteur du panier (autre terminal)
 scripts/check_picking.sh   # test automatique headless du ramassage
 ros2 launch applepic_bringup mission.launch.py headless:=false   # MISSION COMPLÈTE (GUI)
 ros2 topic echo /mission/status   # transitions de la mission (autre terminal)
-scripts/check_mission.sh   # test automatique headless de la mission (~15 min)
+make e2e   # test de bout en bout headless chronométré (~5 min) -> PASS/FAIL + métriques
 ```
 (la démo avec RViz arrivera au jalon M8)
 
@@ -58,10 +61,12 @@ scripts/check_mission.sh   # test automatique headless de la mission (~15 min)
   terrain des pommes, comme un capteur de contact) ; ramassage automatique même en transit.
 - D8 : machine à états maison (pas de BehaviorTree) ; recherche en cercle de 8 points autour de
   chaque arbre ; le robot ne vise une pomme que si son trajet reste à ≥ 0,45 m du tronc.
+- D9 : test M7 chronométré en temps simulé, simulation accélérée ×3 ; seuil 80 % et limite 1200 s
+  (modifiables : `make e2e E2E_MIN_RATIO=0.9 E2E_SIM_LIMIT=1000`).
 
 ## 4. Cassé / bloqué
 - Rien pour l'instant. Voir `docs/TODO_HUMAIN.md` (optionnel).
 
 ## 5. Prochaines étapes
-- M7 test de bout en bout chronométré (base : `scripts/check_mission.sh`), puis M8 démo GUI + RViz.
+- M8 démo GUI Gazebo + RViz avec instructions pas à pas.
 - Accélérer la mission (une boucle ≈ 15 min : beaucoup de temps passé à regarder des zones vides).

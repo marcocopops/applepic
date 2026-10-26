@@ -102,10 +102,24 @@
   d'obstacles autre que les troncs connus ; un double SIGINT à l'arrêt affiche une trace
   KeyboardInterrupt bénigne du nœud `mission`.
 
-## Prochaine tâche : M7 — Test de bout en bout chronométré
-- Partir de `scripts/check_mission.sh` / `eval_mission.py` (métriques déjà sorties en JSON) : en faire
-  le scénario M7 officiel (`make e2e` ?), seuil X % configurable, durée limite simulée, sortie
-  `artifacts/e2e_metrics.json` + tracé avec les pommes du manifeste (ramassées / restantes).
-- Éventuellement accélérer : `look_time` plus court, sauter les points de recherche déjà couverts,
-  RTF > 1 si possible en headless.
-- Puis M8 : launch démo GUI Gazebo + RViz (config RViz : robot, caméra, détections, trajectoire).
+## Session 8 (2026-10-26)
+- M7 fait (travail entamé par la session précédente, interrompue par la limite d'usage avant commit ;
+  repris, vérifié, commité) : `scripts/e2e_mission.sh` (cible `make e2e`, variables `E2E_MIN_RATIO`,
+  `E2E_SIM_LIMIT`, `E2E_RTF`) remplace `check_mission.sh` ; RTF réglé à 3 via le service gz
+  `/world/orchard/set_physics` ; `scripts/eval_e2e.py` chronomètre en temps simulé (`/clock`, depuis la
+  1ʳᵉ transition) et note le run avec le module pur `applepic_mission/metrics.py` (PASS/FAIL + détails
+  par arbre) ; `scripts/plot_e2e.py` trace trajectoire + pommes ramassées/restantes.
+  - Vérifié : `make e2e` → **PASS** : 29/29 pommes déposées (seuil 80 %), 0 échec, mission DONE en
+    887,7 s simulées (limite 1200 s) pour 302 s réelles (RTF effectif 2,94), 207,6 m, 0 pomme restante
+    dans gz, compteurs cohérents. `artifacts/e2e_metrics.json`, `artifacts/e2e_trajectory.png`.
+    Aucun processus orphelin après le run.
+  - `make test` : 69 tests, 0 échec (4 tests `metrics`).
+- Limites : une seule configuration (seed 42) testée ; la mission reste lente en temps simulé (~15 min).
+
+## Prochaine tâche : M8 — Démo GUI Gazebo + RViz
+- Launch `applepic_bringup/launch/demo.launch.py` : mission avec GUI Gazebo + RViz (config `.rviz` :
+  RobotModel, TF, image caméra `/apples/debug_image`, PoseArray `/apples/detections`, trajectoire
+  (nav_msgs/Path à publier depuis `/odom` si besoin), marqueurs arbres/dépôt optionnels).
+- Vérifier en headless ce qui peut l'être (launch démarre, RViz charge la config sans erreur avec
+  `QT_QPA_PLATFORM=offscreen`), puis instructions pas à pas dans le README.
+- Ensuite M9 : accélérer la recherche (sauter les points déjà couverts), GPS bruité.
