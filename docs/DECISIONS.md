@@ -47,3 +47,14 @@
   (inutile à cette échelle), carte d'occupation.
 - Conséquence pour M6 : la mission réutilisera `compute_command` pour aller aux pommes et aux points
   de recherche ; le nœud `waypoint_follower` sert de démo/validation M3.
+
+## D6 — Perception HSV + projection sur plan (session 5)
+- Contexte : M4, pommes rouges unies sur herbe verte, sol plat, pose caméra connue par TF (vérité terrain).
+- Décision : segmentation HSV (deux bandes de teinte autour du rouge, seuils S/V qui excluent le tronc
+  marron, teinte ≈ 18) + centroïde des blobs ; projection du centroïde sur le plan z = rayon de pomme
+  (0,04 m), ce qui approxime le centre de la sphère (erreur mesurée ≤ 1,5 cm). Blobs touchant le bord
+  de l'image ignorés (centroïde biaisé), portée max 4 m. Sortie en `geometry_msgs/PoseArray` (frame
+  `odom`), sans identité ni suivi : la fusion temporelle se fera côté M5/M6.
+- Écarté : détection de cercles (Hough, fragile avec l'ombrage), estimation de distance par le rayon
+  apparent (moins précise que la projection sur sol plat), message custom (PoseArray suffit, évite un
+  paquet ament_cmake d'interfaces).

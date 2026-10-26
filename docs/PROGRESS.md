@@ -44,14 +44,33 @@
 - Limite connue : la route d'entrée depuis le dépôt fait un petit zigzag (2 détours autour de l'arbre 0) ;
   sans gravité, à affiner si besoin.
 
-## Prochaine tâche : M4 — Perception HSV
-- Module pur `applepic_perception/detector.py` : seuillage HSV du rouge (deux plages de teinte, 0–10 et
-  170–180 dans OpenCV), ouverture morphologique, contours → centroïdes + rayon apparent, filtre de taille.
-  OpenCV 4.6 et numpy sont disponibles ; `cv_bridge`, `image_geometry`, `tf2_ros` aussi.
-- Module pur `projection.py` : rayon pixel → repère caméra via la matrice K (`/camera/camera_info`),
-  puis intersection avec le plan z = rayon de pomme (0,04 m) dans le repère monde à partir de la TF
-  `odom → camera_optical_frame` (odom ≡ monde, D4).
-- Nœud `apple_detector` : publie `/apples/detections` (geometry_msgs/PoseArray, frame `odom`) + image de
-  debug annotée. Tests : images synthétiques (disques rouges sur fond vert) + projection avec extrinsèques
-  connues ; puis vérif en simu en comparant aux positions du manifeste `worlds/orchard_apples.yaml`
-  (robot spawné face à l'arbre 0, ex. `x:=2.6 y:=4.0`, comme en session 3).
+## Session 5 (2026-10-26)
+- M4 fait : `applepic_perception/detector.py` (HSV rouge 0–10 ∪ 170–180, S ≥ 100, V ≥ 50, ouverture
+  morphologique, filtres aire/remplissage, rejet des blobs coupés par le bord de l'image),
+  `projection.py` (rayon pixel → plan z = 0,04 m via K et la TF `odom → camera_optical_frame`),
+  nœud `apple_detector` (`/apples/detections` PoseArray en `odom`, `/apples/debug_image` annotée),
+  launch `applepic_bringup/launch/perception.launch.py` (args `headless`, `x`, `y`, `yaw`).
+  - Vérifié : `scripts/check_perception.sh` (sim headless + `scripts/eval_detections.py` qui apparie
+    les détections au manifeste) : arbre 0 depuis (2,6 ; 4,0) → 2 pommes, erreur moyenne 4 mm ;
+    arbre 4 depuis (9,6 ; 9,5 ; yaw π/2) → 4 pommes (dont 2 à 18 cm l'une de l'autre), erreur 5 mm ;
+    0 faux positif (tronc marron et préhenseur gris ignorés). Robot en rotation à 0,3 rad/s :
+    erreur moyenne 5 mm, max 1,5 cm. Images annotées `artifacts/perception_{tree0,tree4,moving}.png`.
+  - `make test` : 39 tests, 0 échec (16 tests perception : images synthétiques, projection aller-retour,
+    rendu synthétique → détection → projection < 6 cm).
+- Limites : champ utile ~0,4–2,3 m devant le robot ; pas de suivi/fusion temporelle des détections
+  (chaque image republie toutes les pommes vues) ; pommes au contact fusionneraient en un blob.
+
+## Prochaine tâche : M5 — Ramassage magique
+- Module pur `applepic_mission/apple_tracker.py` (ou dans perception) : fusion des détections
+  successives en une liste de pommes connues en repère monde (association au plus proche < 0,15 m,
+  moyenne glissante, compteur de vues ≥ 2 pour confirmer, marquage « ramassée »). Tests pytest.
+- Approche : réutiliser `applepic_navigation.controller.compute_command` pour amener `gripper_link`
+  (0,46 m devant `base_footprint`) sur la pomme : viser un point tel que le préhenseur coïncide avec
+  la pomme (cible base = pomme − 0,46 m dans l'axe d'approche). Attention : la pomme sort du champ
+  caméra sous ~0,4 m → finir l'approche en boucle ouverte sur la position mémorisée.
+- Ramassage : nœud `gripper` qui, quand la distance préhenseur–pomme (pose vérité terrain des pommes ou
+  position estimée) < ~6 cm, supprime l'entité via le service gz `/world/orchard/remove`
+  (plugin UserCommands déjà dans le monde, D3 ; appel par `gz service` ou ros_gz `RemoveEntity` si
+  disponible dans Jazzy), incrémente le compteur, publie `/basket/count`, refuse au-delà de la capacité.
+- Vérif : script headless qui spawne le robot près de l'arbre 0, ramasse ≥ 1 pomme, vérifie que le
+  modèle `apple_t0_*` a disparu (`gz model --list`) et que le compteur vaut 1.

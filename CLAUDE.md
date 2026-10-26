@@ -19,6 +19,8 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `make sim-headless` : lance la simu headless pendant `SIM_SECONDS` (défaut 20)
 - `scripts/check_drive.sh [x y yaw]` : smoke test conduite (cmd_vel → odom) + captures caméra
 - `scripts/check_navigation.sh [timeout]` : boucle complète headless (waypoint_follower) + `artifacts/nav_trajectory.png`
+- `scripts/check_perception.sh [x y yaw name min]` : détection HSV headless comparée au manifeste + `artifacts/perception_<name>.png`
+- `ros2 launch applepic_bringup perception.launch.py x:=2.6 y:=4.0` : simu + `apple_detector` (`/apples/detections`, `/apples/debug_image`)
 - `ros2 launch applepic_bringup navigation.launch.py loops:=1 [headless:=false]` : simu + suivi de boucle
 - `scripts/capture_camera.py out.png` : sauve une image de `/camera/image_raw` (simu lancée)
 - Arrêter une simu lancée en arrière-plan : par PGID (`set -m` puis `kill -INT -- -$PID`), jamais par motif.
@@ -28,7 +30,7 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - `src/applepic_description` : URDF/xacro du robot
 - `src/applepic_gazebo` : générateur de monde (verger), mondes SDF, bridge ros_gz
 - `src/applepic_navigation` : `controller.py` (suivi de point), `route.py` (boucle d'arbres), nœud `waypoint_follower`
-- `src/applepic_perception` : détection HSV + projection pixel→sol
+- `src/applepic_perception` : `detector.py` (HSV), `projection.py` (pixel→sol), nœud `apple_detector`
 - `src/applepic_mission` : machine à états de mission
 - `src/applepic_bringup` : launch files de haut niveau
 Tous les paquets sont `ament_python`. La logique pure (sans rclpy) est dans des modules
