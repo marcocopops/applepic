@@ -38,6 +38,9 @@
 - M9 troncs (session 13) : **recalage de la pose sur les troncs vus par la caméra**. GPS grand public
   0,5 m + biais 1 m : **28, 27 et 29/29** sur 3 seeds de bruit (avant : 23/29), 860–950 s simulées. RTK et vérité
   terrain : 29/29, ~720 s. Vérifié par `make e2e` en headless, sur un seul verger.
+- M9 herbe + pare-chocs (session 14) : **verger difficile** (herbe haute, pommes orange, sombres, tachées) : 29/29 en
+  vérité terrain (22/29 avant correction) et 29/29 en GPS grossier. Nouveau **pare-chocs** : le robot ne reste plus coincé
+  contre un tronc (un run bloqué à 20/29 l'avait révélé). Monde par défaut : 29/29 en vérité terrain, 27, 27 et 28/29 en GPS grossier.
 - M8 : **démo `make demo`** (GUI Gazebo + RViz : verger, trajectoire, détections, texte d'état
   au-dessus du robot, image caméra annotée). Vérifié : lancée sur l'écran de cette machine pendant
   90 s (deux fenêtres ouvertes, 4 pommes ramassées, captures `artifacts/demo_{rviz,gazebo}.png`,
@@ -72,6 +75,7 @@ make e2e   # test de bout en bout headless chronométré (~5 min) -> PASS/FAIL +
 make e2e E2E_SEED=7   # idem sur un autre verger (autres positions de pommes)
 make e2e LOCALIZATION=gps                              # idem avec GPS RTK simulé + EKF
 make e2e LOCALIZATION=gps GPS_NOISE=0.5 GPS_BIAS=1.0   # GPS grand public, recalage sur les troncs
+make e2e ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_hard.yaml   # verger difficile
 make demo LOCALIZATION=gps   # démo avec GPS (non testée avec la GUI, seulement en headless)
 ```
 
@@ -99,17 +103,20 @@ make demo LOCALIZATION=gps   # démo avec GPS (non testée avec la GUI, seulemen
 - D14 : les pommes repérées sont ancrées au repère odométrique (insensibles aux sauts du GPS).
 - D15 : recalage sur les troncs, nouvel état mission `ANCHOR` (le robot s'approche du tronc à chaque arbre),
   actif seulement si le GPS est grossier (σ ou biais > 0,1 m).
+- D16 : verger difficile séparé (même positions), herbe visuelle seulement, bande de couleur des pommes élargie.
+- D17 : pare-chocs à contact ; après un choc, le robot recule et **abandonne la pomme visée** (elle reste au sol).
 - D10 : démo = même mission que M7 + nœud `mission_viz` (marqueurs RViz) ; vitesse réelle par
   défaut (`make demo DEMO_RTF=2` pour accélérer, non testé avec la GUI).
 
 ## 4. Cassé / bloqué
 - Rien de bloquant. Voir `docs/TODO_HUMAIN.md` (optionnel).
-- Démo GUI non relancée depuis les sessions 11–12 (vérifiée seulement en headless, y compris en GPS).
-- GPS grossier : ça passe (84/87), mais l'erreur de pose monte encore à ~3 m entre les arbres, et `ANCHOR`
-  ne trouve pas le tronc à 9 arrivées sur 24.
-- **Non expliqué** : un run intermédiaire a divergé (6,8 m, 1,6 rad, 2 remises à zéro de l'EKF) tout en
-  finissant 29/29 ; non reproduit ensuite, cause non trouvée (voir PROGRESS, session 13).
+- **Démo GUI : 1 lancement sur 9 est resté muet** (aucune transition de mission pendant 90 s), cause inconnue, non
+  reproduit. Si le robot ne bouge pas au bout de 30 s : Ctrl+C et relancer.
+- GPS grossier : pas de gain par rapport à la session 13 (82/87 contre 84/87), erreur de pose jusqu'à ~3 m entre les arbres ;
+  une pomme a encore été éjectée par la physique.
+- Monde difficile avec le pare-chocs : vérifié sur un seul verger (les seeds 7 et 123 l'ont été juste avant cet ajout).
+- La divergence de la session 13 vient peut-être du blocage contre un tronc, sans preuve.
 
 ## 5. Prochaines étapes
-- Relancer la démo GUI, tester le GPS grossier sur d'autres vergers, puis obstacles, herbe haute.
+- Obstacles inconnus détectés au pare-chocs, GPS grossier sur d'autres vergers, distracteurs rouges.
 - Accélérer la mission sans perdre de pommes.

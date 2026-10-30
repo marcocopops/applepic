@@ -242,6 +242,40 @@
   - Un seul verger testé en GPS grossier ; démo GUI toujours non relancée depuis la session 10.
   - Résultats sensibles au hasard : le RTK avec `ANCHOR` a donné 27/29 sur un run ; d'où le filtrage.
 
-## Prochaine tâche : M9 — obstacles / herbe haute, ou pommes partiellement cachées
-- Avant cela, à faible coût : relancer la démo GUI (`make demo`) ; surveiller `rejected in a row` dans les
-  logs GPS pour attraper la divergence ci-dessus (enregistrer vérité + estimation au moment du reset).
+## Session 14 (2026-10-30)
+- M9 herbe haute + pommes abîmées fait (D16) : `config/orchard_hard.yaml` (mêmes positions que le verger par défaut,
+  touffes d'herbe visuelles, 40 % des pommes avec une touffe collée, variantes `dark`, `orange`, `bruised`),
+  `make e2e ORCHARD_CONFIG=…`. Monde par défaut : seule différence, le plugin Contact ajouté plus bas.
+  - Référence avant correction : **22/29 FAIL** ; 6 des 7 pommes perdues étaient les orange (teinte 12 rendue, bande
+    0–10), la 7ᵉ a été éjectée. Les pommes sombres, tachées et cachées passaient déjà.
+  - Corrigé : bande rouge 0–14, troncs 15–25, fermeture morphologique 7 px (un brin coupait une pomme en deux → piste
+    fantôme).
+- Blocage contre les troncs corrigé (D17) : la non-régression a donné **20/29 FAIL** en GPS grossier : robot immobile
+  de 800 à 1200 s simulées à 41 cm de l'axe du tronc 4, envoyé là par l'erreur de pose, sans délai sur les
+  déplacements de SEARCH. Ajouts : capteur de contact `/bumper` sur le châssis et une bande plus large que les roues,
+  recul de 2 s (ou avancée si toujours bloqué), abandon de la pomme ou de la vue en cours, `view_timeout` 40 s, compteur
+  `bumps` dans `/mission/stats`.
+  - Vérifié, code final, `scripts/e2e_mission.sh` (verger seed 42) :
+    | monde | localisation | pommes | échecs | temps simulé | erreur max |
+    |---|---|---|---|---|---|
+    | défaut | vérité | 29/29 PASS | 0 | 720 s | 0 |
+    | difficile | vérité | 29/29 PASS | 1 | 762 s | 0 |
+    | défaut | GPS σ 0,5 + biais 1, bruit seed 0 / 1 / 2 | 27, 27, 28/29 PASS | 2, 3, 5 | 884–914 s | 2,3–3,2 m |
+    | difficile | GPS σ 0,5 + biais 1, bruit seed 0 | 29/29 PASS | 6 | 950 s | 2,4 m |
+    Reculs déclenchés dans ces runs GPS (notes `bump` du journal), aucun blocage, aucune remise à zéro de l'EKF.
+  - Vérifié avant l'ajout du pare-chocs seulement : monde difficile, vergers seed 7 (31/31) et 123 (32/32), vérité terrain.
+  - `make test` : 136 tests, 0 échec. `scripts/check_demo.sh` PASS.
+  - Démo GUI relancée (première fois depuis la session 10) : fenêtres ouvertes, mission qui progresse sur 8 démarrages sur 9.
+- Ne marche pas / limites :
+  - **Démarrage muet non expliqué** : 1 lancement GUI sur 9 sans aucune transition de mission pendant 90 s (le premier,
+    juste après `check_demo.sh`). Non reproduit en 6 démarrages à froid, ni en relançant juste après `check_demo.sh`. Cause
+    inconnue. Si ça arrive : Ctrl+C et relancer.
+  - GPS grossier : 82/87 (94 %) contre 84/87 en session 13, écart non significatif sur 3 runs mais pas d'amélioration. Un
+    contact fait abandonner la pomme visée, qui reste au sol. `apple_t5_5` a encore été éjectée à ~20 m (seed 2).
+  - La divergence de la session 13 (6,8 m, 1,6 rad) vient peut-être de ce blocage (cap resté figé ici, jusqu'à 1,26 rad
+    d'erreur avant correctif) : plausible, non démontré, le run d'origine n'existe plus.
+  - La couleur reste le seul critère : pas de distracteur rouge (feuilles, fruits d'une autre espèce) testé.
+
+## Prochaine tâche : M9 — obstacles inconnus (caisse, tuyau) détectés au pare-chocs
+- Le pare-chocs filtre déjà tout sauf sol et pommes. Il reste à ajouter des obstacles au générateur, mémoriser le point de
+  contact et replanifier autour. Ensuite, utiliser un contact avec un tronc comme mesure de localisation.

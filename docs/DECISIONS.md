@@ -234,3 +234,22 @@
   refaire) ; modéliser le biais GPS comme état du filtre (plus complexe, à reconsidérer pour réduire l'erreur
   entre deux arbres).
 - Résultat : 84/87 pommes sur 3 seeds de bruit (≥ 27/29 chacun), au prix de ~20–30 % de temps en plus.
+
+## D16 — Verger difficile séparé, herbe seulement visuelle (session 14)
+- Contexte : M9 « herbe haute, pommes cachées ou abîmées ». Le verger par défaut sert de référence de non-régression.
+- Décision : config à part `orchard_hard.yaml`, aux mêmes positions de pommes (tirages d'apparence sur un générateur
+  aléatoire distinct). Brins d'herbe sans collision : le robot les traverse. Bande rouge élargie à 0–14 et troncs
+  remontés à 15 (teintes rendues mesurées : pomme orange 12, tronc 18). Fermeture morphologique de 7 px.
+- Écarté : modifier le verger par défaut (perdrait la comparaison) ; herbe en collision (coût physique, sans intérêt pour
+  la caméra) ; apprentissage (YOLO) : la couleur suffit encore sur ce monde.
+- Limite : marge de teinte de 3–4 valeurs entre pomme orange et tronc ; deux pommes à moins de 7 px fusionnent.
+
+## D17 — Pare-chocs à contact et recul (session 14)
+- Contexte : en GPS grossier, l'erreur de pose peut mener le robot dans un tronc ; il y restait indéfiniment (20/29).
+- Décision : capteur de contact gz sur le châssis et sur une bande plus large que les roues, comme sur les robots tondeuses
+  du commerce. Tout contact hors sol et pommes déclenche un recul de 2 s (avancée si toujours bloqué), puis l'abandon de la
+  pomme ou de la vue visée. Délai de 40 s sur les vues de SEARCH en secours. Le plugin Contact est dans le monde.
+- Écarté : capteurs sur les roues (touchent toujours le sol : 2000 messages/s sur `/bumper`) ; délai seul (40 s perdues à
+  chaque choc, et le robot continue de pousser) ; détection de patinage (les roues glissent sans signal fiable).
+- Limite : le choc n'améliore pas la pose, et la pomme visée est perdue pour la boucle.
+
