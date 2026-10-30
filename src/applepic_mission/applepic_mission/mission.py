@@ -19,8 +19,11 @@ ANCHOR (optional, for a coarse GPS): a pose error would shift the search around 
 robot first faces the trunk and creeps towards it until the localization reports a trunk fix (the
 trunk foot is just out of the camera view from the search circle), then looks to both sides.
 
+A bump (the pose estimate led the robot into a trunk) interrupts any moving state: the robot drives
+back, or forward if it still touches something, and gives up what it was doing: apple, search view.
+
 `step(pose, now)` returns the velocity command for the current state; the caller feeds events
-with `on_detections`, `on_picked`, `on_basket_full` and `on_unloaded`, and calls the unload
+with `on_detections`, `on_picked`, `on_bump`, `on_basket_full` and `on_unloaded`, and calls the unload
 service while `unload_requested` is set.
 """
 import math
@@ -75,6 +78,10 @@ class MissionParams:
     anchor_travel: float = 1.2      # m, longest creep towards the trunk
     anchor_stop: float = 0.7        # m, estimated distance to the trunk axis where the creep ends
     anchor_scan: float = 0.8        # rad, look this much to each side after the creep
+    view_timeout: float = 40.0      # s, give up a search view not reached in time
+    escape_speed: float = 0.2       # m/s, driving away from a bump
+    escape_time: float = 2.0        # s, then the robot checks that it is free
+    bump_memory: float = 0.3        # s, a contact this recent means the robot is touching something
 
 
 @dataclass
@@ -84,6 +91,7 @@ class MissionStats:
     unloaded: int = 0
     loops_done: int = 0
     trees_searched: int = 0
+    bumps: int = 0
     transitions: list = field(default_factory=list)
 
 
@@ -114,6 +122,11 @@ class Mission:
         self.k = 0                  # position in `order`
         self.phase = None           # move | face | look
         self.look_until = None
+        self.move_since = None
+        # Bump escape
+        self.last_bump = None
+        self.escape_until = None
+        self.escape_dir = -1.0
         # ANCHOR bookkeeping
         self.anchor_fixed = False
         self.anchor_start = None
@@ -143,6 +156,10 @@ class Mission:
     def on_trunk_fix(self):
         """The localization has just been corrected on a trunk seen by the camera."""
         self.anchor_fixed = True
+
+    def on_bump(self, now):
+        """The bumper touches something (not the ground nor an apple)."""
+        self.last_bump = now
 
     def on_picked(self, apple_xy):
         """The gripper picked the apple that was at `apple_xy`: retire the matching track."""
@@ -314,6 +331,7 @@ class Mission:
                               self.p.circle_clearance)
         self.phase = 'move'
         self.look_until = None
+        self.move_since = None
 
     def _leave_note(self):
         """Why the current tree is left: its coverage and the active tracks it still has."""
@@ -380,6 +398,9 @@ class Mission:
             self._enter_goto_tree()
         if self.basket_full and self.state in (GOTO_TREE, ANCHOR, SEARCH, PICK):
             self._enter_goto_base(resume=True)
+        escape = self._step_escape(now)
+        if escape is not None:
+            return escape
         handler = {
             GOTO_TREE: self._step_goto_tree,
             ANCHOR: self._step_anchor,
@@ -390,6 +411,51 @@ class Mission:
             DONE: lambda now: (0.0, 0.0),
         }[self.state]
         return handler(now)
+
+    def _touching(self, now):
+        return self.last_bump is not None and now - self.last_bump <= self.p.bump_memory
+
+    def _step_escape(self, now):
+        """Velocity command while driving away from a bump, None when not escaping."""
+        if self.escape_until is None:
+            if self.state in (UNLOAD, DONE) or not self._touching(now):
+                return None
+            self.stats.bumps += 1
+            self.escape_dir = -1.0
+            self.escape_until = now + self.p.escape_time
+        elif now >= self.escape_until:
+            if not self._touching(now):
+                self.escape_until = None
+                self._after_escape(now)
+                return 0.0, 0.0
+            self.escape_dir = -self.escape_dir   # blocked this way too
+            self.escape_until = now + self.p.escape_time
+        return self.escape_dir * self.p.escape_speed, 0.0
+
+    def _after_escape(self, now):
+        """Give up what led the robot into the obstacle and go on."""
+        if self.state == PICK:
+            track = self.tracker.get(self.target)
+            if track is not None and track.state == 'active':
+                self.tracker.mark_failed(track.id)
+                self.stats.failed += 1
+            self._enter_search(resume=True, note='bump: gave up the apple')
+        elif self.state == SEARCH:
+            self._skip_view('bump: skipped a view')
+        elif self.state == ANCHOR:
+            self._enter_search(note='bump')
+        elif self.state == GOTO_TREE:
+            self._enter_goto_tree('bump')
+        elif self.state == GOTO_BASE:
+            self._enter_goto_base(self.resume_tree, ' (bump)')
+
+    def _skip_view(self, note):
+        self.k += 1
+        self._set_state(SEARCH, note)
+        if self._skip_covered():
+            self._next_tree()
+        else:
+            self._start_move()
 
     def _step_goto_tree(self, now):
         v, w, arrived = self._follow_path()
@@ -439,6 +505,11 @@ class Mission:
             self._set_state(PICK, f'track {cands[0].id}')
             return self._step_pick(now)
         if self.phase == 'move':
+            if self.move_since is None:
+                self.move_since = now
+            elif now - self.move_since > self.p.view_timeout:
+                self._skip_view('view not reached in time')
+                return 0.0, 0.0
             v, w, arrived = self._follow_path()
             if not arrived:
                 return v, w

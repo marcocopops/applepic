@@ -386,3 +386,60 @@ def test_apple_seen_once_gets_one_view_aimed_at_it_before_leaving():
     m.phase, m.look_until = 'look', 0.0
     m.step((x, y, yaw), 2.0)
     assert m.state == GOTO_TREE and m.tree == 1
+
+
+def test_bump_backs_up_then_skips_the_search_view():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    k = m.k
+    m.on_bump(1.0)
+    v, w = m.step((x, y, yaw), 1.0)
+    assert v < 0.0 and w == 0.0 and m.stats.bumps == 1
+    assert m.step((x, y, yaw), 2.0)[0] < 0.0
+    m.step((x, y, yaw), 3.5)            # free again
+    assert m.state == SEARCH and m.k > k and m.stats.bumps == 1
+
+
+def test_bump_drives_forward_when_still_blocked_behind():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    m.on_bump(1.0)
+    assert m.step((x, y, yaw), 1.0)[0] < 0.0
+    m.on_bump(3.0)
+    assert m.step((x, y, yaw), 3.1)[0] > 0.0
+    assert m.stats.bumps == 1
+
+
+def test_bump_during_pick_gives_up_the_apple():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    confirm(m, (x + 0.8, y))
+    m.step((x, y, yaw), 0.5)
+    assert m.state == PICK
+    target = m.target
+    m.on_bump(1.0)
+    m.step((x, y, yaw), 1.0)
+    m.step((x, y, yaw), 3.5)
+    assert m.state == SEARCH and m.stats.failed == 1
+    assert m.tracker.get(target).state == 'failed'
+
+
+def test_old_contact_does_not_trigger_an_escape():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    m.on_bump(1.0)
+    m.step((x, y, yaw), 5.0)
+    assert m.stats.bumps == 0
+
+
+def test_search_view_not_reached_in_time_is_skipped():
+    m = make_mission(coverage=False)
+    x, y, yaw = at_search_point(m)
+    far = (x + 1.0, y, yaw)
+    m.k, m.phase = 0, None
+    m._start_move()
+    m.path = [(x + 5.0, y)]
+    m.step(far, 1.0)
+    assert m.k == 0
+    m.step(far, 1.0 + m.p.view_timeout + 0.1)
+    assert m.k == 1 and m.phase == 'move'

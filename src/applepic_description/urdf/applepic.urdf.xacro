@@ -74,6 +74,11 @@
       <origin xyz="${chassis_x} 0 0"/>
       <geometry><box size="${base_length} ${base_width} ${base_height}"/></geometry>
     </collision>
+    <!-- Bumper strip, wider than the wheels so that a trunk touches it first -->
+    <collision name="bumper_strip">
+      <origin xyz="${chassis_x} 0 0"/>
+      <geometry><box size="${base_length} ${wheel_separation + wheel_width + 0.04} 0.04"/></geometry>
+    </collision>
     <inertial>
       <origin xyz="${chassis_x} 0 0"/>
       <mass value="${base_mass}"/>
@@ -268,6 +273,20 @@
         </image>
         <clip><near>0.05</near><far>30</far></clip>
       </camera>
+    </sensor>
+  </gazebo>
+
+  <!-- Bumper: contact sensor on the chassis and on its bumper strip, both lumped into base_footprint.
+       Not on the wheels: they always touch the ground, which would flood the topic at the physics rate. -->
+  <gazebo reference="base_link">
+    <sensor name="chassis_bumper" type="contact">
+      <always_on>1</always_on>
+      <update_rate>20</update_rate>
+      <contact>
+        <collision>base_footprint_fixed_joint_lump__base_link_collision</collision>
+        <collision>base_footprint_fixed_joint_lump__bumper_strip_collision_1</collision>
+        <topic>/bumper</topic>
+      </contact>
     </sensor>
   </gazebo>
 

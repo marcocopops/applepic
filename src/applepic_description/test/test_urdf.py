@@ -65,3 +65,11 @@ def test_gz_plugins_present(robot):
     assert 'gz::sim::systems::OdometryPublisher' in names
     sensor = robot.find(".//sensor[@type='camera']")
     assert sensor.find('topic').text == 'camera/image_raw'
+
+
+def test_bumper_covers_the_wheels_but_not_their_ground_contact(robot):
+    sensors = [s.get('name') for s in robot.iter('sensor') if s.get('type') == 'contact']
+    assert sensors == ['chassis_bumper']
+    strip = robot.find("link[@name='base_link']/collision[@name='bumper_strip']")
+    width = float(strip.find('geometry/box').get('size').split()[1])
+    assert width > 0.52 + 0.05

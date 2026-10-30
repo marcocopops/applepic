@@ -254,6 +254,7 @@ def build_world_sdf(config, apples=None):
     </plugin>
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
     <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"/>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
 
     <spherical_coordinates>
       <surface_model>EARTH_WGS84</surface_model>

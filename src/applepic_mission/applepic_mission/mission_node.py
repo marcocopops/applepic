@@ -5,7 +5,7 @@ and basket events, publishes its velocity commands and calls /basket/unload at t
 magic pick itself is done by the `gripper` node.
 
 Subscribes: /localization/odom (map frame), /apples/detections (PoseArray, map frame),
-            /localization/trunk_fix, /basket/full, /basket/picked_point (where the picked apple was, relative to the
+            /localization/trunk_fix, /bumper (gz contacts), /basket/full, /basket/picked_point (where the picked apple was, relative to the
             robot when the pick was triggered: placed in the map with the pose at that time),
             TF map -> odom (apple tracks follow its changes: anchored to the odometry).
 Publishes:  /cmd_vel, ~/state (std_msgs/String, latched), ~/status (std_msgs/String),
@@ -27,6 +27,7 @@ from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
+from ros_gz_interfaces.msg import Contacts
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 import tf2_ros
@@ -98,6 +99,7 @@ class MissionNode(Node):
         self.create_subscription(Bool, '/basket/full', self._on_full, latched)
         self.create_subscription(PointStamped, '/localization/trunk_fix',
                                  lambda _: self.mission.on_trunk_fix(), 10)
+        self.create_subscription(Contacts, '/bumper', self._on_bumper, 10)
         self.create_timer(0.1, self._step)
 
     @property
@@ -126,6 +128,14 @@ class MissionNode(Node):
     def _on_detections(self, msg):
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         self.mission.on_detections([(p.position.x, p.position.y) for p in msg.poses], stamp)
+
+    def _on_bumper(self, msg):
+        # The wheels always touch the ground, and the chassis clears the apples.
+        for c in msg.contacts:
+            other = c.collision2.name if 'applepic' in c.collision1.name else c.collision1.name
+            if not other.startswith(('ground', 'apple_')):
+                self.mission.on_bump(self._now())
+                return
 
     def _on_full(self, msg):
         self.mission.on_basket_full(msg.data)
@@ -172,6 +182,7 @@ class MissionNode(Node):
             'state': self.mission.state, 'tree': self.mission.tree,
             'picked': s.picked, 'unloaded': s.unloaded, 'failed': s.failed,
             'loops_done': s.loops_done, 'trees_searched': s.trees_searched,
+            'bumps': s.bumps,
             'distance_m': round(self.distance, 2),
             'elapsed_s': round(self._now() - self.start_time, 1) if self.start_time else 0.0,
         }
