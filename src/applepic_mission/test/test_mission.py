@@ -8,6 +8,7 @@ from applepic_mission.mission import (
     ANCHOR, DONE, GOTO_BASE, GOTO_TREE, PICK, SEARCH, UNLOAD, Mission, MissionParams)
 from applepic_mission.picking import apple_in_reach, gripper_position
 from applepic_navigation.controller import wrap_angle
+from applepic_navigation.route import segment_clearance
 
 TREES = [(4.0, 4.0), (10.0, 4.0)]
 DEPOT = (0.0, 0.0)
@@ -228,9 +229,25 @@ def _visible(pose, apple, footprint=FOOTPRINT):
                            -dx * math.sin(yaw) + dy * math.cos(yaw))
 
 
+def _chassis_hits(pose, crates):
+    """True if the chassis rectangle overlaps one of the square crates (x, y, half side)."""
+    x, y, yaw = pose
+    for cx, cy, half in crates:
+        for lon in (-0.2, 0.0, 0.2, 0.4):
+            for lat in (-0.3, 0.0, 0.3):
+                px = x + lon * math.cos(yaw) - lat * math.sin(yaw)
+                py = y + lon * math.sin(yaw) + lat * math.cos(yaw)
+                if abs(px - cx) <= half and abs(py - cy) <= half:
+                    return True
+    return False
+
+
 def run_world(apples, trees=TREES, capacity=10, max_time=1500.0, dt=0.1, footprint=FOOTPRINT,
-              **params):
-    """Unicycle robot + fake detector + magic gripper driven by the mission until DONE."""
+              crates=(), **params):
+    """Unicycle robot + fake detector + magic gripper driven by the mission until DONE.
+
+    `crates` are unknown to the mission: they block the robot, which only feels the bump.
+    """
     m = Mission(trees, DEPOT, MissionParams(loops=1, **params))
     basket = Basket(capacity)
     remaining = dict(apples)
@@ -242,7 +259,11 @@ def run_world(apples, trees=TREES, capacity=10, max_time=1500.0, dt=0.1, footpri
             m.on_unloaded(basket.unload())
             m.on_basket_full(False)
         x, y, yaw = pose
-        pose = (x + v * math.cos(yaw) * dt, y + v * math.sin(yaw) * dt, wrap_angle(yaw + w * dt))
+        moved = (x + v * math.cos(yaw) * dt, y + v * math.sin(yaw) * dt, wrap_angle(yaw + w * dt))
+        if _chassis_hits(moved, crates):
+            m.on_bump(t)
+        else:
+            pose = moved
         dist += abs(v) * dt
         min_trunk = min(min_trunk, min(math.dist(pose[:2], tr) for tr in trees))
         g = gripper_position(*pose, 0.46)
@@ -417,10 +438,11 @@ def test_bump_during_pick_gives_up_the_apple():
     m.step((x, y, yaw), 0.5)
     assert m.state == PICK
     target = m.target
+    near_trunk = (TREES[0][0] - 0.45, TREES[0][1], 0.0)
     m.on_bump(1.0)
-    m.step((x, y, yaw), 1.0)
-    m.step((x, y, yaw), 3.5)
-    assert m.state == SEARCH and m.stats.failed == 1
+    m.step(near_trunk, 1.0)
+    m.step(near_trunk, 3.5)
+    assert m.state == SEARCH and m.stats.failed == 1 and not m.obstacles
     assert m.tracker.get(target).state == 'failed'
 
 
@@ -443,3 +465,150 @@ def test_search_view_not_reached_in_time_is_skipped():
     assert m.k == 0
     m.step(far, 1.0 + m.p.view_timeout + 0.1)
     assert m.k == 1 and m.phase == 'move'
+
+
+def _moving_bump(m, pose, now, v=0.3):
+    """The robot driving at speed `v` hits something at time `now`, then backs away freely."""
+    m.last_v = v
+    m.on_bump(now)
+    assert m.step(pose, now)[0] != 0.0
+    m.step(pose, now + 2.5)
+
+
+def test_bump_away_from_trunks_remembers_the_contact_ahead_of_the_robot():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    pose = (x + 3.0, y, 0.0)
+    _moving_bump(m, pose, 1.0)
+    assert m.obstacles[0] == pytest.approx((pose[0] + 0.40, pose[1]))
+    assert sorted(o[1] for o in m.obstacles) == pytest.approx([pose[1] - 0.3, pose[1], pose[1] + 0.3])
+    assert m.stats.obstacles == 1
+
+
+def test_bump_while_reversing_is_behind_and_pivot_records_nothing():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    _moving_bump(m, (x + 3.0, y, 0.0), 1.0, v=-0.2)
+    assert m.obstacles[0] == pytest.approx((x + 3.0 - 0.20, y))
+    _moving_bump(m, (x + 5.0, y, 0.0), 5.0, v=0.0)
+    assert m.stats.obstacles == 1 and len(m.obstacles) == 3
+
+
+def test_bump_on_a_trunk_is_not_an_obstacle():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    tx, ty = TREES[0]
+    _moving_bump(m, (tx - 0.5, ty, 0.0), 1.0)
+    assert m.obstacles == [] and m.stats.bumps == 1
+
+
+def test_repeated_contact_at_the_same_place_counts_once():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    _moving_bump(m, (x + 3.0, y, 0.0), 1.0)
+    _moving_bump(m, (x + 3.05, y, 0.0), 5.0)
+    assert m.stats.obstacles == 1 and m.stats.bumps == 2
+
+
+def test_paths_go_around_a_known_obstacle():
+    m = make_mission()
+    m.step((0.0, 0.0, 0.0), 0.0)
+    target = m.path[-1]
+    middle = (target[0] / 2, target[1] / 2)
+    m.obstacles.append(middle)
+    m._enter_goto_tree()
+    assert segment_clearance((0.0, 0.0), m.path[0], [middle]) >= 0.69
+    assert m.path[-1] == pytest.approx(target)
+    assert len(m.path) > 1
+
+
+def test_bump_on_the_way_to_a_search_view_retries_it_once_around_the_contact():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    k = m.k
+    goal = m.order[k][:2]
+    _moving_bump(m, (goal[0] - 2.0, goal[1], 0.0), 1.0)
+    m.step((goal[0] - 2.0, goal[1], 0.0), 3.5)
+    assert m.state == SEARCH and m.k == k and m.stats.obstacles == 1
+    _moving_bump(m, (goal[0] - 1.0, goal[1], 0.0), 5.0)
+    m.step((goal[0] - 1.0, goal[1], 0.0), 7.5)
+    assert m.k > k
+
+
+def test_view_next_to_a_known_obstacle_is_dropped():
+    m = make_mission(coverage=False)
+    x, y, yaw = at_search_point(m)
+    next_view = m.order[m.k + 1]
+    m.obstacles.append(next_view[:2])
+    m.k += 1
+    assert not m._skip_covered()
+    assert m.order[m.k] != next_view
+
+
+def test_blocked_search_point_is_not_the_entry_of_a_tree():
+    m = make_mission()
+    m._pose = (0.0, 0.0, 0.0)
+    entry = m._closest_search_index(0, (0.0, 0.0))
+    m.obstacles.append(m.search_point(0, entry))
+    assert m._closest_search_index(0, (0.0, 0.0)) != entry
+
+
+def test_apple_kept_after_a_first_bump_then_given_up():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    confirm(m, (x + 0.8, y))
+    m.step((x, y, yaw), 0.5)
+    assert m.state == PICK
+    target = m.target
+    far = (x + 3.0, y, 0.0)
+    _moving_bump(m, far, 1.0)
+    m.step(far, 3.5)
+    assert m.tracker.get(target).state == 'active' and m.stats.failed == 0
+    m.state, m.target, m.target_since = PICK, target, 4.0
+    _moving_bump(m, far, 5.0)
+    m.step(far, 7.5)
+    assert m.tracker.get(target).state == 'failed' and m.stats.failed == 1
+
+
+def test_apple_behind_a_known_obstacle_is_not_approached_from_here():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    assert m.approach_feasible(x, y - 2.0)
+    m.obstacles.append((x, y - 0.8))
+    assert not m.approach_feasible(x, y - 2.0)
+
+
+def test_obstacles_follow_the_map_shift():
+    m = make_mission()
+    m.obstacles.append((1.0, 2.0))
+    m.on_map_shift(lambda p: (p[0] + 0.5, p[1]))
+    assert m.obstacles == [(1.5, 2.0)]
+
+
+def test_tree_out_of_reach_is_left_out_after_repeated_bumps():
+    m = make_mission(max_goto_bumps=2)
+    pose = (0.0, 0.0, 0.0)
+    m.step(pose, 0.0)
+    assert m.state == GOTO_TREE and m.tree == 0
+    _moving_bump(m, pose, 1.0)
+    m.step(pose, 3.5)
+    assert m.tree == 0
+    _moving_bump(m, (0.0, 0.5, 0.0), 5.0)
+    m.step((0.0, 0.5, 0.0), 7.5)
+    assert m.tree == 1 and m.stats.trees_skipped == 1
+
+
+def test_full_mission_goes_around_unknown_crates():
+    apples = ring_apples(TREES)
+    # One crate on the way to the first tree, one on a search point of the second.
+    tx, ty = TREES[1]
+    crates = [(TREES[0][0] / 2, TREES[0][1] / 2, 0.25), (tx, ty - 1.9, 0.2)]
+    crates = [c for c in crates if all(_clear(c, a) for a in apples.values())]
+    assert crates
+    m, basket, remaining, t, _ = run_world(apples, crates=crates, max_time=2500.0)
+    assert m.state == DONE and not remaining
+    assert m.stats.bumps >= 1 and m.stats.obstacles >= 1
+
+
+def _clear(crate, apple):
+    return max(abs(apple[0] - crate[0]), abs(apple[1] - crate[1])) > crate[2] + 0.1

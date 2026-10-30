@@ -182,7 +182,7 @@ class MissionNode(Node):
             'state': self.mission.state, 'tree': self.mission.tree,
             'picked': s.picked, 'unloaded': s.unloaded, 'failed': s.failed,
             'loops_done': s.loops_done, 'trees_searched': s.trees_searched,
-            'bumps': s.bumps,
+            'bumps': s.bumps, 'obstacles': s.obstacles, 'trees_skipped': s.trees_skipped,
             'distance_m': round(self.distance, 2),
             'elapsed_s': round(self._now() - self.start_time, 1) if self.start_time else 0.0,
         }

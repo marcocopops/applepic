@@ -21,6 +21,10 @@ trunk foot is just out of the camera view from the search circle), then looks to
 
 A bump (the pose estimate led the robot into a trunk) interrupts any moving state: the robot drives
 back, or forward if it still touches something, and gives up what it was doing: apple, search view.
+A bump away from any trunk reveals an unknown obstacle: the edge of the chassis facing the direction of
+travel touched it, somewhere along its width, so three points of that edge are remembered for the whole
+mission; every move plans around them
+and views too close to them are dropped; the interrupted apple or view gets one more try.
 
 `step(pose, now)` returns the velocity command for the current state; the caller feeds events
 with `on_detections`, `on_picked`, `on_bump`, `on_basket_full` and `on_unloaded`, and calls the unload
@@ -82,6 +86,14 @@ class MissionParams:
     escape_speed: float = 0.2       # m/s, driving away from a bump
     escape_time: float = 2.0        # s, then the robot checks that it is free
     bump_memory: float = 0.3        # s, a contact this recent means the robot is touching something
+    bump_front: float = 0.40        # m, base origin to the front of the chassis
+    bump_rear: float = 0.20         # m, base origin to the rear of the chassis
+    bump_half_width: float = 0.3    # m, half width of the bumper (the contact is somewhere along it)
+    bump_clearance: float = 0.7     # m, base path vs contact point (0.5 = pivot radius of the chassis)
+    bump_pick_clearance: float = 0.55  # m, same for a straight approach to an apple
+    bump_merge: float = 0.1         # m, a contact this close to a known one is the same point
+    bump_trunk_gate: float = 0.5    # m, a contact this close to a trunk axis is that trunk
+    max_goto_bumps: int = 5         # bumps on the way to a tree before leaving that tree out
 
 
 @dataclass
@@ -92,6 +104,8 @@ class MissionStats:
     loops_done: int = 0
     trees_searched: int = 0
     bumps: int = 0
+    obstacles: int = 0
+    trees_skipped: int = 0
     transitions: list = field(default_factory=list)
 
 
@@ -127,6 +141,11 @@ class Mission:
         self.last_bump = None
         self.escape_until = None
         self.escape_dir = -1.0
+        self.last_v = 0.0
+        self.obstacles = []         # (x, y) contact points with what the map does not know
+        self.hit_obstacle = None    # contact point of the current escape
+        self.bump_tried = set()     # tracks and views already given one more try after a bump
+        self.goto_bumps = 0
         # ANCHOR bookkeeping
         self.anchor_fixed = False
         self.anchor_start = None
@@ -152,6 +171,7 @@ class Mission:
         odometric while a GPS-driven estimate wanders (no ghost duplicate tracks, no misses).
         """
         self.tracker.transform(fn)
+        self.obstacles = [tuple(fn(o)) for o in self.obstacles]
 
     def on_trunk_fix(self):
         """The localization has just been corrected on a trunk seen by the camera."""
@@ -207,8 +227,9 @@ class Mission:
         return tx + self.p.search_radius * math.cos(a), ty + self.p.search_radius * math.sin(a)
 
     def _closest_search_index(self, tree, xy):
-        return min(range(self.p.search_points),
-                   key=lambda i: math.dist(self.search_point(tree, i), xy))
+        indices = range(self.p.search_points)
+        free = [i for i in indices if not self._blocked(self.search_point(tree, i))]
+        return min(free or indices, key=lambda i: math.dist(self.search_point(tree, i), xy))
 
     def grid(self, tree):
         if tree not in self.grids:
@@ -232,6 +253,8 @@ class Mission:
         for i in range(self.p.fill_in_angles):
             a = 2.0 * math.pi * i / self.p.fill_in_angles
             for radius in sorted(radii):
+                if self._blocked(self.view_pose(self.tree, a, 0.0, radius)):
+                    continue
                 for o in (0.0, -off / 2, off / 2, -off, off):
                     yield self.view_pose(self.tree, a, o, radius)
 
@@ -259,7 +282,7 @@ class Mission:
             mid = (view[0] + self.p.relook_ahead * math.cos(view[2]),
                    view[1] + self.p.relook_ahead * math.sin(view[2]))
             return math.dist(mid, target)
-        return min(self._candidate_views(), key=miss)
+        return min(self._candidate_views(), key=miss, default=None)
 
     def pending(self):
         """Active apples of the current tree, confirmed (not approachable from here) or seen once."""
@@ -270,6 +293,8 @@ class Mission:
     def _skip_covered(self):
         """Advance self.k past views adding no coverage, append fill-in views once the circle is
         done; return True when the tree is finished."""
+        while self.k < len(self.order) and self._blocked(self.order[self.k]):
+            self.k += 1
         if self.k >= len(self.order):
             view = self.relook_view()
             if view is not None:
@@ -289,8 +314,16 @@ class Mission:
                 self.fill_ins += 1
         return self.k >= len(self.order)
 
+    def _blocked(self, xy):
+        """True if the base standing at xy would be too close to a known obstacle."""
+        return any(math.dist(o, xy[:2]) < self.p.bump_clearance for o in self.obstacles)
+
+    def _plan(self, goal, trunks, clearance):
+        return plan_path(self._pose[:2], goal, trunks, clearance, bumps=self.obstacles,
+                         bump_clearance=self.p.bump_clearance)
+
     def _travel_path(self, goal, clearance):
-        return plan_path(self._pose[:2], goal, self.trees, clearance)
+        return self._plan(goal, self.trees, clearance)
 
     def _enter_goto_tree(self, note=''):
         self._set_state(GOTO_TREE, note)
@@ -327,8 +360,7 @@ class Mission:
 
     def _start_move(self):
         goal = self.order[self.k][:2]
-        self.path = plan_path(self._pose[:2], goal, [self.trees[self.tree]],
-                              self.p.circle_clearance)
+        self.path = self._plan(goal, [self.trees[self.tree]], self.p.circle_clearance)
         self.phase = 'move'
         self.look_until = None
         self.move_since = None
@@ -344,6 +376,10 @@ class Mission:
     def _next_tree(self):
         note = self._leave_note()
         self.stats.trees_searched += 1
+        self._advance_tree(note)
+
+    def _advance_tree(self, note):
+        self.goto_bumps = 0
         self.tree += 1
         if self.tree >= len(self.trees):
             self.tree = len(self.trees) - 1
@@ -376,7 +412,8 @@ class Mission:
         ux, uy = (ax - x) / d, (ay - y) / d
         stop = (ax - self.approach.offset * ux, ay - self.approach.offset * uy)
         return (math.dist(stop, trunk) >= self.p.trunk_stop_clearance
-                and segment_clearance((x, y), stop, [trunk]) >= self.p.trunk_path_clearance)
+                and segment_clearance((x, y), stop, [trunk]) >= self.p.trunk_path_clearance
+                and segment_clearance((x, y), stop, self.obstacles) >= self.p.bump_pick_clearance)
 
     def candidates(self):
         """Confirmed apples of the current tree that can be approached from here, nearest first."""
@@ -391,6 +428,11 @@ class Mission:
 
     def step(self, pose, now):
         """Advance the state machine; return the (linear, angular) velocity command."""
+        cmd = self._tick(pose, now)
+        self.last_v = cmd[0]
+        return cmd
+
+    def _tick(self, pose, now):
         self._pose = tuple(pose)
         if self.p.coverage and self.state in (SEARCH, PICK):
             self.grid(self.tree).mark(self._pose)
@@ -421,6 +463,7 @@ class Mission:
             if self.state in (UNLOAD, DONE) or not self._touching(now):
                 return None
             self.stats.bumps += 1
+            self.hit_obstacle = self._remember_obstacle()
             self.escape_dir = -1.0
             self.escape_until = now + self.p.escape_time
         elif now >= self.escape_until:
@@ -432,22 +475,62 @@ class Mission:
             self.escape_until = now + self.p.escape_time
         return self.escape_dir * self.p.escape_speed, 0.0
 
+    def _remember_obstacle(self):
+        """Remember the bumper edge that hit something; return its middle, None if it is a trunk
+        or when pivoting (no direction: the contact can be anywhere around the chassis).
+        """
+        if abs(self.last_v) < 0.01:
+            return None
+        x, y, yaw = self._pose
+        reach = self.p.bump_front if self.last_v > 0.0 else -self.p.bump_rear
+        c, s = math.cos(yaw), math.sin(yaw)
+        middle = (x + reach * c, y + reach * s)
+        half = self.p.bump_half_width
+        edge = [middle, (middle[0] - half * s, middle[1] + half * c),
+                (middle[0] + half * s, middle[1] - half * c)]
+        if any(math.dist(p, t) < self.p.bump_trunk_gate for p in edge for t in self.trees):
+            return None
+        new = [p for p in edge if all(math.dist(p, o) >= self.p.bump_merge for o in self.obstacles)]
+        self.obstacles.extend(new)
+        self.stats.obstacles += middle in new
+        return middle
+
     def _after_escape(self, now):
-        """Give up what led the robot into the obstacle and go on."""
+        """Go on around what the robot hit, or give up what led it there if that is not possible."""
+        known = self.hit_obstacle is not None
+        where = f' at ({self.hit_obstacle[0]:.2f}, {self.hit_obstacle[1]:.2f})' if known else ''
+        self.hit_obstacle = None
         if self.state == PICK:
             track = self.tracker.get(self.target)
+            if known and track is not None and track.id not in self.bump_tried:
+                # Stays a candidate if another approach avoids the contact point.
+                self.bump_tried.add(track.id)
+                self._enter_search(resume=True, note=f'bump{where}: apple kept')
+                return
             if track is not None and track.state == 'active':
                 self.tracker.mark_failed(track.id)
                 self.stats.failed += 1
-            self._enter_search(resume=True, note='bump: gave up the apple')
+            self._enter_search(resume=True, note=f'bump{where}: gave up the apple')
         elif self.state == SEARCH:
-            self._skip_view('bump: skipped a view')
+            view = (self.tree, self.k)
+            if (known and view not in self.bump_tried and self.k < len(self.order)
+                    and not self._blocked(self.order[self.k])):
+                self.bump_tried.add(view)
+                self._set_state(SEARCH, f'bump{where}: going around')
+                self._start_move()
+            else:
+                self._skip_view(f'bump{where}: skipped a view')
         elif self.state == ANCHOR:
-            self._enter_search(note='bump')
+            self._enter_search(note=f'bump{where}')
         elif self.state == GOTO_TREE:
-            self._enter_goto_tree('bump')
+            self.goto_bumps += 1
+            if self.goto_bumps >= self.p.max_goto_bumps:
+                self.stats.trees_skipped += 1
+                self._advance_tree(f'tree {self.tree} out of reach')
+            else:
+                self._enter_goto_tree(f'bump{where}')
         elif self.state == GOTO_BASE:
-            self._enter_goto_base(self.resume_tree, ' (bump)')
+            self._enter_goto_base(self.resume_tree, f' (bump{where})')
 
     def _skip_view(self, note):
         self.k += 1
@@ -461,6 +544,7 @@ class Mission:
         v, w, arrived = self._follow_path()
         if not arrived:
             return v, w
+        self.goto_bumps = 0
         if self.p.anchor:
             self._enter_anchor()
         else:

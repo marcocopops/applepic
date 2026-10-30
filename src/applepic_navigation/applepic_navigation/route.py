@@ -41,15 +41,18 @@ def segment_clearance(a, b, obstacles):
     return min((math.dist(_closest_on_segment(a, b, o), o) for o in obstacles), default=math.inf)
 
 
-def _detour(a, b, obstacles, clearance, depth):
-    """Return the intermediate points to insert between a and b (excluding both)."""
+def _detour(a, b, keepouts, depth):
+    """Return the intermediate points to insert between a and b (excluding both).
+
+    `keepouts` is a list of (point, clearance): the worst violation is handled first.
+    """
     if depth <= 0:
         return []
-    worst, worst_d = None, clearance
-    for o in obstacles:
-        d = math.dist(_closest_on_segment(a, b, o), o)
-        if d < worst_d:
-            worst, worst_d = o, d
+    worst, clearance, worst_gap = None, 0.0, 0.0
+    for o, c in keepouts:
+        gap = c - math.dist(_closest_on_segment(a, b, o), o)
+        if gap > worst_gap:
+            worst, clearance, worst_gap = o, c, gap
     if worst is None:
         return []
     cx, cy = _closest_on_segment(a, b, worst)
@@ -60,16 +63,18 @@ def _detour(a, b, obstacles, clearance, depth):
         nx, ny, n = -vy, vx, math.hypot(vx, vy)
     margin = clearance * 1.25
     via = (worst[0] + margin * nx / n, worst[1] + margin * ny / n)
-    return (_detour(a, via, obstacles, clearance, depth - 1) + [via]
-            + _detour(via, b, obstacles, clearance, depth - 1))
+    return (_detour(a, via, keepouts, depth - 1) + [via]
+            + _detour(via, b, keepouts, depth - 1))
 
 
-def plan_path(a, b, obstacles, clearance, depth=3):
+def plan_path(a, b, obstacles, clearance, depth=3, bumps=(), bump_clearance=0.0):
     """Return the waypoints from a to b (b included, a excluded) keeping `clearance` from obstacles.
 
-    Detours are only added for obstacles the straight segment passes too close to.
+    Detours are only added for obstacles the straight segment passes too close to. `bumps` are
+    points hit by the robot, to keep `bump_clearance` from.
     """
-    return _detour(tuple(a), tuple(b), obstacles, clearance, depth) + [tuple(b)]
+    keepouts = [(o, clearance) for o in obstacles] + [(o, bump_clearance) for o in bumps]
+    return _detour(tuple(a), tuple(b), keepouts, depth) + [tuple(b)]
 
 
 def build_route(config, approach_distance=2.2, clearance=2.0, start=None, end_at_depot=True):
@@ -87,7 +92,7 @@ def build_route(config, approach_distance=2.2, clearance=2.0, start=None, end_at
     route = []
     prev = start
     for gx, gy, label in goals:
-        for vx, vy in _detour(prev, (gx, gy), trees, clearance, depth=3):
+        for vx, vy in _detour(prev, (gx, gy), [(t, clearance) for t in trees], 3):
             route.append((vx, vy, 'via'))
         route.append((gx, gy, label))
         prev = (gx, gy)
