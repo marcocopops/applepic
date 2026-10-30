@@ -30,6 +30,8 @@ setup(
     entry_points={
         'console_scripts': [
             'waypoint_follower = applepic_navigation.waypoint_follower:main',
+            'gps_noise = applepic_navigation.gps_noise:main',
+            'localizer = applepic_navigation.localizer:main',
         ],
     },
 )

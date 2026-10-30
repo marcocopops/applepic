@@ -1,7 +1,7 @@
 """ROS node: RViz helpers for the demo (orchard markers, robot trajectory, mission HUD).
 
-Subscribes: /odom, /mission/stats (JSON, latched), /basket/count (latched).
-Publishes:  ~/path (nav_msgs/Path, frame odom), ~/markers (visualization_msgs/MarkerArray, latched).
+Subscribes: /localization/odom, /mission/stats (JSON, latched), /basket/count (latched).
+Publishes:  ~/path (nav_msgs/Path, frame map), ~/markers (visualization_msgs/MarkerArray, latched).
 """
 import json
 import os
@@ -41,7 +41,7 @@ class MissionViz(Node):
         self.declare_parameter('orchard_config', default_cfg)
         self.declare_parameter('search_radius', 1.9)
         self.declare_parameter('capacity', 0)
-        self.declare_parameter('frame', 'odom')
+        self.declare_parameter('frame', 'map')
         gp = self.get_parameter
         self.frame = gp('frame').value
         self.capacity = int(gp('capacity').value)
@@ -56,7 +56,7 @@ class MissionViz(Node):
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.path_pub = self.create_publisher(Path, '~/path', 10)
         self.marker_pub = self.create_publisher(MarkerArray, '~/markers', latched)
-        self.create_subscription(Odometry, '/odom', self._on_odom, 10)
+        self.create_subscription(Odometry, '/localization/odom', self._on_odom, 10)
         self.create_subscription(String, '/mission/stats', self._on_stats, latched)
         self.create_subscription(Int32, '/basket/count', self._on_count, latched)
         self.marker_pub.publish(self._scene())

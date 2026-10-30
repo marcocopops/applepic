@@ -14,6 +14,8 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
+from applepic_bringup.launch_args import declare_localization_args, localization_configs
+
 MISSION_ARGS = ('headless', 'x', 'y', 'yaw', 'capacity', 'loops', 'search_radius')
 
 # Retry until the world is up; the GUI can rarely keep up beyond ~2-3x.
@@ -31,7 +33,8 @@ def generate_launch_description():
     share = get_package_share_directory('applepic_bringup')
     mission = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(share, 'launch', 'mission.launch.py')),
-        launch_arguments={name: LaunchConfiguration(name) for name in MISSION_ARGS}.items(),
+        launch_arguments={**{name: LaunchConfiguration(name) for name in MISSION_ARGS},
+                          **localization_configs()}.items(),
     )
     viz = Node(
         package='applepic_mission',
@@ -58,6 +61,7 @@ def generate_launch_description():
         output='screen',
     )
     return LaunchDescription([
+        *declare_localization_args(),
         DeclareLaunchArgument('headless', default_value='false'),
         DeclareLaunchArgument('rviz', default_value='true'),
         DeclareLaunchArgument('rtf', default_value='1', description='simulation speed-up'),

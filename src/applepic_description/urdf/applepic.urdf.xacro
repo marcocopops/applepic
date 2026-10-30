@@ -39,6 +39,15 @@
   <xacro:property name="gripper_x" value="0.46"/>
   <xacro:property name="gripper_z" value="0.04"/>
 
+  <!-- GPS antenna above the wheel axis (rotation centre): no horizontal lever arm.
+       gps_noise: horizontal white noise std (m); gps_bias_stddev / gps_bias_tau: slowly
+       wandering bias (first-order Gauss-Markov, like multipath / atmosphere errors). -->
+  <xacro:arg name="gps_noise" default="0.02"/>
+  <xacro:arg name="gps_bias_stddev" default="0.0"/>
+  <xacro:arg name="gps_bias_tau" default="60.0"/>
+  <xacro:property name="gps_z" value="0.40"/>
+  <xacro:property name="gps_rate" value="10"/>
+
   <xacro:property name="base_z" value="${ground_clearance + base_height / 2}"/>
 
   <xacro:macro name="box_inertia" params="m x y z">
@@ -193,6 +202,27 @@
     <child link="gripper_link"/>
     <origin xyz="${gripper_x} 0 ${gripper_z}"/>
   </joint>
+
+  <link name="gps_link">
+    <visual>
+      <geometry><cylinder radius="0.04" length="0.02"/></geometry>
+      <material name="black"/>
+    </visual>
+  </link>
+  <joint name="gps_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="gps_link"/>
+    <origin xyz="0 0 ${gps_z}"/>
+  </joint>
+
+  <gazebo reference="gps_link">
+    <sensor name="navsat" type="navsat">
+      <always_on>true</always_on>
+      <update_rate>${gps_rate}</update_rate>
+      <topic>gps/raw</topic>
+      <gz_frame_id>gps_link</gz_frame_id>
+    </sensor>
+  </gazebo>
 
   <gazebo reference="camera_link">
     <sensor name="camera" type="camera">

@@ -9,13 +9,16 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
+from applepic_bringup.launch_args import declare_localization_args, localization_configs
+
 
 def generate_launch_description():
     perception = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(
             get_package_share_directory('applepic_bringup'), 'launch', 'perception.launch.py')),
         launch_arguments={
-            name: LaunchConfiguration(name) for name in ('headless', 'world', 'x', 'y', 'yaw')
+            **{name: LaunchConfiguration(name) for name in ('headless', 'world', 'x', 'y', 'yaw')},
+            **localization_configs(),
         }.items(),
     )
     gripper = Node(
@@ -40,6 +43,7 @@ def generate_launch_description():
         output='screen',
     )
     return LaunchDescription([
+        *declare_localization_args(),
         DeclareLaunchArgument('headless', default_value='true'),
         DeclareLaunchArgument('world', default_value='orchard.sdf',
                               description='SDF file name in applepic_gazebo/worlds or absolute path'),

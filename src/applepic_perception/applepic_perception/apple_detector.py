@@ -21,7 +21,7 @@ class AppleDetector(Node):
     def __init__(self):
         super().__init__('apple_detector')
         defaults = HsvParams()
-        self.declare_parameter('target_frame', 'odom')
+        self.declare_parameter('target_frame', 'map')
         self.declare_parameter('apple_radius', 0.04)   # apple centers lie on z = apple_radius
         self.declare_parameter('max_range', 4.0)       # m, horizontal distance from the camera
         self.declare_parameter('sat_min', defaults.sat_min)

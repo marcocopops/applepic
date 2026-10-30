@@ -1,4 +1,4 @@
-"""ROS 2 node: follow the orchard waypoint loop using /odom (world frame) and /cmd_vel."""
+"""ROS 2 node: follow the orchard waypoint loop using /localization/odom (map frame) and /cmd_vel."""
 import csv
 import math
 import os
@@ -57,7 +57,7 @@ class WaypointFollower(Node):
 
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.status_pub = self.create_publisher(String, '~/status', 10)
-        self.create_subscription(Odometry, '/odom', self._on_odom, 10)
+        self.create_subscription(Odometry, '/localization/odom', self._on_odom, 10)
         self.create_timer(0.1, self._step)
 
     def _now(self):

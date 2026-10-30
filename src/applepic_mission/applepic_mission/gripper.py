@@ -1,6 +1,6 @@
 """ROS node: "magic" gripper and basket.
 
-When the gripper point (`offset` m ahead of the base, pose from /odom) comes within `pick_radius`
+When the gripper point (`offset` m ahead of the base, ground-truth pose from /odom) comes within `pick_radius`
 of an apple model (ground-truth poses from gz `/world/<world>/pose/info`), the apple is removed
 from the simulation (gz service `/world/<world>/remove`, UserCommands plugin) and the basket
 counter is incremented, unless the basket is full. The remove request runs in a
@@ -11,10 +11,13 @@ out under load): the apple counts as picked once it disappears; if it is still t
 Subscribes: /odom (nav_msgs/Odometry, world frame), gz /world/<world>/pose/info (gz.msgs.Pose_V).
 Publishes:  /basket/count (std_msgs/Int32, latched), /basket/full (std_msgs/Bool, latched),
             /basket/picked (std_msgs/String, apple name),
-            /basket/picked_point (geometry_msgs/PointStamped, world frame: where that apple was;
-            a late-confirmed pick may arrive once the gripper is already on another apple).
+            /basket/picked_point (geometry_msgs/PointStamped, frame base_footprint, stamped
+            when the pick was triggered: where that apple was relative to the robot, so that
+            the mission can place it with its own pose estimate; a late-confirmed pick may
+            arrive once the gripper is already on another apple).
 Services:   /basket/unload (std_srvs/Trigger): empty the basket (the mission calls it at the depot).
 """
+import math
 import subprocess
 import threading
 import time
@@ -62,6 +65,7 @@ class Gripper(Node):
         self.apples = {}          # name -> (x, y), ground truth from gz
         self.removed = set()      # names already removed (pose/info may lag one message)
         self.requested = {}       # name -> ((x, y), monotonic time): removal pending
+        self.pick_info = {}       # name -> ((x, y) in base_footprint, ROS stamp) of the request
         self.full_warned = False
 
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -105,7 +109,8 @@ class Gripper(Node):
         if not self.enabled:
             return
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
-        g = gripper_position(p.x, p.y, yaw_from_quaternion(q.x, q.y, q.z, q.w), self.offset)
+        yaw = yaw_from_quaternion(q.x, q.y, q.z, q.w)
+        g = gripper_position(p.x, p.y, yaw, self.offset)
         with self.lock:
             name = apple_in_reach(
                 g, {n: xy for n, xy in self.apples.items() if n not in self.requested},
@@ -119,7 +124,10 @@ class Gripper(Node):
                     self.full_warned = True
                 return
             xy = self.apples[name]
+            dx, dy = xy[0] - p.x, xy[1] - p.y
+            c, s = math.cos(yaw), math.sin(yaw)
             self.requested[name] = (xy, time.monotonic())
+            self.pick_info[name] = ((c * dx + s * dy, -s * dx + c * dy), msg.header.stamp)
         # The gz request takes up to remove_timeout: never in the executor thread.
         threading.Thread(target=self._remove_async, args=(name, xy), daemon=True).start()
 
@@ -133,15 +141,16 @@ class Gripper(Node):
                 return
             self.removed.add(name)
             self.requested.pop(name, None)
+            rel, stamp = self.pick_info.pop(name)
             self.apples.pop(name, None)
             self.basket.add()
         self.get_logger().info(
             f'picked {name} -> basket {self.basket.count}/{self.basket.capacity}')
         self.picked_pub.publish(String(data=name))
         point = PointStamped()
-        point.header.stamp = self.get_clock().now().to_msg()
-        point.header.frame_id = 'odom'
-        point.point.x, point.point.y = float(xy[0]), float(xy[1])
+        point.header.stamp = stamp
+        point.header.frame_id = 'base_footprint'
+        point.point.x, point.point.y = float(rel[0]), float(rel[1])
         self.picked_point_pub.publish(point)
         self._publish_count()
 

@@ -14,11 +14,6 @@
   ros_type_name: nav_msgs/msg/Odometry
   gz_type_name: gz.msgs.Odometry
   direction: GZ_TO_ROS
-- ros_topic_name: /tf
-  gz_topic_name: /odom/tf
-  ros_type_name: tf2_msgs/msg/TFMessage
-  gz_type_name: gz.msgs.Pose_V
-  direction: GZ_TO_ROS
 - ros_topic_name: /wheel_odom
   gz_topic_name: /wheel_odom
   ros_type_name: nav_msgs/msg/Odometry
@@ -39,3 +34,10 @@
   ros_type_name: sensor_msgs/msg/CameraInfo
   gz_type_name: gz.msgs.CameraInfo
   direction: GZ_TO_ROS
+- ros_topic_name: /gps/raw
+  gz_topic_name: /gps/raw
+  ros_type_name: sensor_msgs/msg/NavSatFix
+  gz_type_name: gz.msgs.NavSat
+  direction: GZ_TO_ROS
+# odom -> base_footprint TF: bridged by sim.launch.py from /odom/tf (ground truth) or
+# /wheel_odom/tf (GPS localization), depending on the `localization` argument.

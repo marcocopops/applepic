@@ -6,9 +6,12 @@
 # Outputs: artifacts/e2e_metrics.json, artifacts/e2e_trajectory.{csv,png}, artifacts/e2e.log.
 # With a seed, a world with other apple positions (same trees) is generated in artifacts/ first.
 # Usage: scripts/e2e_mission.sh [min_ratio [sim_limit [rtf [capacity [wall_timeout [seed]]]]]]
+# Localization (env): LOCALIZATION=truth|gps, GPS_NOISE, GPS_BIAS, GPS_BIAS_TAU (m, m, s), GPS_SEED.
 set -o pipefail
 cd "$(dirname "$0")/.."
 source /opt/ros/jazzy/setup.bash && source install/setup.bash
+LOC=${LOCALIZATION:-truth}; GPS_NOISE=${GPS_NOISE:-0.02}; GPS_BIAS=${GPS_BIAS:-0.0}
+GPS_BIAS_TAU=${GPS_BIAS_TAU:-60.0}; GPS_SEED=${GPS_SEED:-0}
 MIN=${1:-0.8}; SIM_LIMIT=${2:-1200}; RTF=${3:-3}; CAP=${4:-10}; TIMEOUT=${5:-1800}; SEED=${6:-}
 mkdir -p artifacts
 WORLD=orchard.sdf
@@ -24,7 +27,8 @@ CSV="$PWD/artifacts/e2e_trajectory.csv"
 # Job control: the launch gets its own process group, stopped by PGID (never by name).
 set -m
 ros2 launch applepic_bringup mission.launch.py headless:=true world:="$WORLD" capacity:="$CAP" loops:=1 \
-  trajectory_csv:="$CSV" > "$LOG" 2>&1 &
+  localization:="$LOC" gps_noise:="$GPS_NOISE" gps_bias:="$GPS_BIAS" gps_bias_tau:="$GPS_BIAS_TAU" \
+  gps_seed:="$GPS_SEED" trajectory_csv:="$CSV" > "$LOG" 2>&1 &
 LAUNCH=$!
 cleanup() {
   kill -INT -- -"$LAUNCH" 2>/dev/null
@@ -44,7 +48,8 @@ if [ "$RTF" != "1" ]; then
   done
   [ $ok = 1 ] && echo "real-time factor set to $RTF" || echo "WARN: could not set RTF $RTF"
 fi
-python3 scripts/eval_e2e.py --manifest "$MANIFEST" ${SEED:+--seed "$SEED"} --min-ratio "$MIN" --sim-limit "$SIM_LIMIT" --timeout "$TIMEOUT"
+python3 scripts/eval_e2e.py --manifest "$MANIFEST" ${SEED:+--seed "$SEED"} \
+  --localization "$LOC" --gps-noise "$GPS_NOISE" --gps-bias "$GPS_BIAS" --min-ratio "$MIN" --sim-limit "$SIM_LIMIT" --timeout "$TIMEOUT"
 status=$?
 cleanup  # stop the nodes first so the trajectory CSV is flushed and closed
 python3 scripts/plot_e2e.py "$CSV" artifacts/e2e_metrics.json artifacts/e2e_trajectory.png \

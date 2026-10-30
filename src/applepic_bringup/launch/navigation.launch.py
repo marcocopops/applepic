@@ -8,12 +8,15 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from applepic_bringup.launch_args import declare_localization_args, localization_configs
+
 
 def generate_launch_description():
     sim = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(
             get_package_share_directory('applepic_bringup'), 'launch', 'sim.launch.py')),
-        launch_arguments={'headless': LaunchConfiguration('headless')}.items(),
+        launch_arguments={'headless': LaunchConfiguration('headless'),
+                          **localization_configs()}.items(),
     )
     follower = Node(
         package='applepic_navigation',
@@ -26,6 +29,7 @@ def generate_launch_description():
         output='screen',
     )
     return LaunchDescription([
+        *declare_localization_args(),
         DeclareLaunchArgument('headless', default_value='true'),
         DeclareLaunchArgument('loops', default_value='0'),
         DeclareLaunchArgument('trajectory_csv', default_value=''),

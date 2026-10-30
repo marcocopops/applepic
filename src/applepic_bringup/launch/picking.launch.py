@@ -8,13 +8,16 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+from applepic_bringup.launch_args import declare_localization_args, localization_configs
+
 
 def generate_launch_description():
     perception = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(
             get_package_share_directory('applepic_bringup'), 'launch', 'perception.launch.py')),
         launch_arguments={
-            name: LaunchConfiguration(name) for name in ('headless', 'x', 'y', 'yaw')
+            **{name: LaunchConfiguration(name) for name in ('headless', 'x', 'y', 'yaw')},
+            **localization_configs(),
         }.items(),
     )
     gripper = Node(
@@ -31,6 +34,7 @@ def generate_launch_description():
         output='screen',
     )
     return LaunchDescription([
+        *declare_localization_args(),
         DeclareLaunchArgument('headless', default_value='true'),
         DeclareLaunchArgument('x', default_value='2.6'),
         DeclareLaunchArgument('y', default_value='4.0'),

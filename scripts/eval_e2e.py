@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """M7 end-to-end scoring: wait for the mission to finish, then score it against the gz world.
 
-Listens to /mission/stats (JSON), /basket/picked and /clock until the mission state is DONE,
+Listens to /mission/stats (JSON), /basket/picked, /clock and the pose estimate
+(/localization/odom, compared with the ground truth /odom) until the mission state is DONE,
 --sim-limit simulated seconds elapse or --timeout wall seconds elapse. Then queries the gz model
 list and scores the run with `applepic_mission.metrics.evaluate` (written to --out as JSON).
 Exits 0 on PASS.
@@ -13,6 +14,9 @@ import sys
 import time
 
 from applepic_mission.metrics import evaluate
+from applepic_navigation.controller import yaw_from_quaternion
+from applepic_navigation.localization import PoseErrorTracker
+from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
@@ -56,6 +60,9 @@ def main():
     ap.add_argument('--sim-limit', type=float, default=1200.0, help='simulated seconds')
     ap.add_argument('--timeout', type=float, default=1800.0, help='wall seconds')
     ap.add_argument('--seed', type=int, default=None, help='orchard seed, recorded in the metrics')
+    ap.add_argument('--localization', default='truth', help='recorded in the metrics')
+    ap.add_argument('--gps-noise', type=float, default=None)
+    ap.add_argument('--gps-bias', type=float, default=None)
     ap.add_argument('--out', default='artifacts/e2e_metrics.json')
     args = ap.parse_args()
     with open(args.manifest) as f:
@@ -76,6 +83,17 @@ def main():
     node.create_subscription(String, '/mission/stats',
                              lambda m: stats.__setitem__(0, json.loads(m.data)), latched)
     node.create_subscription(Clock, '/clock', on_clock, 10)
+    loc_error = PoseErrorTracker()
+
+    def odom_sample(msg):
+        p, q = msg.pose.pose.position, msg.pose.pose.orientation
+        return (msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9,
+                (p.x, p.y, yaw_from_quaternion(q.x, q.y, q.z, q.w)))
+
+    node.create_subscription(Odometry, '/odom',
+                             lambda m: loc_error.add_truth(*odom_sample(m)), 50)
+    node.create_subscription(Odometry, '/localization/odom',
+                             lambda m: loc_error.add_estimate(*odom_sample(m)), 50)
 
     def sim_s():
         return clock[1] - clock[0] if clock[0] is not None else 0.0
@@ -100,6 +118,8 @@ def main():
     if args.seed is not None:
         m['seed'] = args.seed
     m['apples_left_final_xy'] = left_poses
+    m['localization'] = {'mode': args.localization, 'gps_noise_m': args.gps_noise,
+                         'gps_bias_m': args.gps_bias, **loc_error.summary()}
     with open(args.out, 'w') as f:
         json.dump(m, f, indent=2)
     print(json.dumps(m, indent=2))

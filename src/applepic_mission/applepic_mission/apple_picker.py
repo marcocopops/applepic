@@ -7,7 +7,7 @@ approach plus `approach_timeout`) is marked failed. Idles when the basket is ful
 confirmed apple is known; the
 mission (M6) will add the search pattern around each tree.
 
-Subscribes: /odom, /apples/detections (PoseArray, world frame), /basket/picked, /basket/full.
+Subscribes: /localization/odom, /apples/detections (PoseArray, world frame), /basket/picked, /basket/full.
 Publishes:  /cmd_vel, ~/status (std_msgs/String).
 """
 from geometry_msgs.msg import PoseArray, Twist
@@ -48,7 +48,7 @@ class ApplePicker(Node):
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.status_pub = self.create_publisher(String, '~/status', 10)
-        self.create_subscription(Odometry, '/odom', self._on_odom, 10)
+        self.create_subscription(Odometry, '/localization/odom', self._on_odom, 10)
         self.create_subscription(PoseArray, '/apples/detections', self._on_detections, 10)
         self.create_subscription(String, '/basket/picked', self._on_picked, 10)
         self.create_subscription(Bool, '/basket/full', self._on_full, latched)

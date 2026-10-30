@@ -1,18 +1,22 @@
 """ROS node: run the orchard mission (trees -> search -> pick -> depot -> unload) with Mission.
 
-Wraps the pure state machine `applepic_mission.mission.Mission`: feeds it /odom, apple detections
+Wraps the pure state machine `applepic_mission.mission.Mission`: feeds it the pose estimate, apple detections
 and basket events, publishes its velocity commands and calls /basket/unload at the depot. The
 magic pick itself is done by the `gripper` node.
 
-Subscribes: /odom, /apples/detections (PoseArray, world frame), /basket/full,
-            /basket/picked_point (where the picked apple was).
+Subscribes: /localization/odom (map frame), /apples/detections (PoseArray, map frame),
+            /basket/full, /basket/picked_point (where the picked apple was, relative to the
+            robot when the pick was triggered: placed in the map with the pose at that time).
 Publishes:  /cmd_vel, ~/state (std_msgs/String, latched), ~/status (std_msgs/String),
             ~/stats (std_msgs/String, JSON, latched, on every transition and every
             `stats_period` s so the HUD distance/time stay live).
 Client:     /basket/unload (std_srvs/Trigger).
 """
+import bisect
+from collections import deque
 import csv
 import json
+import math
 import os
 import re
 
@@ -60,6 +64,7 @@ class MissionNode(Node):
         self.exit_when_done = bool(gp('exit_when_done').value)
 
         self.pose = None
+        self.history = deque(maxlen=300)   # (t, pose) at the odometry rate: ~10 s
         self.start_time = None
         self.distance = 0.0
         self.unload_future = None
@@ -81,7 +86,7 @@ class MissionNode(Node):
         self.status_pub = self.create_publisher(String, '~/status', 10)
         self.stats_pub = self.create_publisher(String, '~/stats', latched)
         self.unload_client = self.create_client(Trigger, '/basket/unload')
-        self.create_subscription(Odometry, '/odom', self._on_odom, 10)
+        self.create_subscription(Odometry, '/localization/odom', self._on_odom, 10)
         self.create_subscription(PoseArray, '/apples/detections', self._on_detections, 10)
         self.create_subscription(PointStamped, '/basket/picked_point', self._on_picked_point, 10)
         self.create_subscription(Bool, '/basket/full', self._on_full, latched)
@@ -104,6 +109,7 @@ class MissionNode(Node):
         if self.pose is not None:
             self.distance += ((pose[0] - self.pose[0]) ** 2 + (pose[1] - self.pose[1]) ** 2) ** 0.5
         self.pose = pose
+        self.history.append((msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9, pose))
         if self.csv_file:
             self.csv.writerow([f'{self._now():.2f}', f'{p.x:.3f}', f'{p.y:.3f}',
                                f'{pose[2]:.3f}', self.mission.state or 'INIT'])
@@ -115,8 +121,26 @@ class MissionNode(Node):
     def _on_full(self, msg):
         self.mission.on_basket_full(msg.data)
 
+    def _pose_at(self, t):
+        """Estimated pose closest to time t (latest if t is newer than the history)."""
+        if not self.history:
+            return self.pose
+        times = [h[0] for h in self.history]
+        i = bisect.bisect_left(times, t)
+        if i == len(times):
+            return self.history[-1][1]
+        if i > 0 and t - times[i - 1] < times[i] - t:
+            i -= 1
+        return self.history[i][1]
+
     def _on_picked_point(self, msg):
         x, y = msg.point.x, msg.point.y
+        if msg.header.frame_id == 'base_footprint':
+            pose = self._pose_at(msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9)
+            if pose is None:
+                return
+            c, s = math.cos(pose[2]), math.sin(pose[2])
+            x, y = pose[0] + c * x - s * y, pose[1] + s * x + c * y
         self.mission.on_picked((x, y))
         self._status(f'picked apple at ({x:.2f}, {y:.2f}) (total {self.mission.stats.picked}, '
                      f'carried {self.mission.carried})')
