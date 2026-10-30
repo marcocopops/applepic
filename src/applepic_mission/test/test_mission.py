@@ -232,15 +232,19 @@ def _visible(pose, apple, footprint=FOOTPRINT):
 def _chassis_hits(pose, crates):
     """True if the chassis rectangle overlaps one of the square crates (x, y, half side)."""
     x, y, yaw = pose
+    c, s = math.cos(yaw), math.sin(yaw)
+    corners = [(x + lon * c - lat * s, y + lon * s + lat * c)
+               for lon in (-0.2, 0.4) for lat in (-0.3, 0.3)]
     for cx, cy, half in crates:
-        if math.dist((x, y), (cx, cy)) > 0.6 + half * 1.5:
+        # Separating axes: those of the crate, then those of the chassis.
+        if (min(p[0] for p in corners) > cx + half or max(p[0] for p in corners) < cx - half
+                or min(p[1] for p in corners) > cy + half or max(p[1] for p in corners) < cy - half):
             continue
-        for lon in (-0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4):    # finer than the crates
-            for lat in (-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3):
-                px = x + lon * math.cos(yaw) - lat * math.sin(yaw)
-                py = y + lon * math.sin(yaw) + lat * math.cos(yaw)
-                if abs(px - cx) <= half and abs(py - cy) <= half:
-                    return True
+        square = [(cx + i * half, cy + j * half) for i in (-1, 1) for j in (-1, 1)]
+        lons = [(px - x) * c + (py - y) * s for px, py in square]
+        lats = [-(px - x) * s + (py - y) * c for px, py in square]
+        if min(lons) <= 0.4 and max(lons) >= -0.2 and min(lats) <= 0.3 and max(lats) >= -0.3:
+            return True
     return False
 
 
@@ -587,17 +591,46 @@ def test_obstacles_follow_the_map_shift():
     assert m.obstacles == [(1.5, 2.0)]
 
 
-def test_tree_out_of_reach_is_left_out_after_repeated_bumps():
-    m = make_mission(max_goto_bumps=2)
+def _bump_until_tree_changes(m, pose, t):
+    tree = m.tree
+    while m.tree == tree and m.state == GOTO_TREE:
+        _moving_bump(m, pose, t)
+        m.step(pose, t + 2.5)
+        t += 4.0
+    return t
+
+
+def test_tree_out_of_reach_is_put_off_to_the_end_of_the_loop_then_left_out():
+    trees = [(4.0, 4.0), (10.0, 4.0), (16.0, 4.0)]
+    m = Mission(trees, DEPOT, MissionParams(loops=1, max_goto_bumps=2))
     pose = (0.0, 0.0, 0.0)
     m.step(pose, 0.0)
-    assert m.state == GOTO_TREE and m.tree == 0
-    _moving_bump(m, pose, 1.0)
-    m.step(pose, 3.5)
-    assert m.tree == 0
-    _moving_bump(m, (0.0, 0.5, 0.0), 5.0)
-    m.step((0.0, 0.5, 0.0), 7.5)
+    t = _bump_until_tree_changes(m, pose, 1.0)
+    assert m.tree == 1 and m.stats.trees_skipped == 0 and m.put_off == [0]
+    t = _bump_until_tree_changes(m, pose, t)
+    assert m.tree == 2 and m.put_off == [0, 1]
+    t = _bump_until_tree_changes(m, pose, t)
+    assert m.tree == 0 and m.put_off == [1, 2] and m.stats.trees_skipped == 0
+    t = _bump_until_tree_changes(m, pose, t)
     assert m.tree == 1 and m.stats.trees_skipped == 1
+    t = _bump_until_tree_changes(m, pose, t)
+    assert m.tree == 2 and m.stats.trees_skipped == 2
+    _bump_until_tree_changes(m, pose, t)
+    assert m.state == GOTO_BASE and m.stats.trees_skipped == 3
+
+
+def test_loop_goes_on_after_the_tree_it_had_reached_when_a_put_off_tree_is_done():
+    m = Mission([(4.0, 4.0), (10.0, 4.0), (16.0, 4.0)], DEPOT, MissionParams(loops=1, max_goto_bumps=2))
+    pose = (0.0, 0.0, 0.0)
+    m.step(pose, 0.0)
+    _bump_until_tree_changes(m, pose, 1.0)
+    assert m.tree == 1
+    m._next_tree()
+    assert m.tree == 2
+    m._next_tree()
+    assert m.tree == 0 and m.put_off == []
+    m._next_tree()
+    assert m.state == GOTO_BASE
 
 
 def test_full_mission_goes_around_unknown_crates():
@@ -614,24 +647,6 @@ def test_full_mission_goes_around_unknown_crates():
 
 def _clear(crate, apple):
     return max(abs(apple[0] - crate[0]), abs(apple[1] - crate[1])) > crate[2] + 0.1
-
-
-def test_repeated_bumps_sidestep_further_then_on_the_other_side():
-    m = make_mission(sidestep_tries=2)
-    pose = (2.0, 0.0, 0.0)
-    m.step(pose, 0.0)
-    _moving_bump(m, pose, 1.0)
-    m.step(pose, 3.5)
-    assert m.via is None
-    vias = []
-    for i in range(3):
-        _moving_bump(m, pose, 5.0 + 4 * i)
-        m.step(pose, 7.5 + 4 * i)
-        vias.append(m.via)
-    assert math.dist(vias[0], pose[:2]) == pytest.approx(1.0)
-    assert math.dist(vias[1], pose[:2]) == pytest.approx(2.0)
-    assert math.dist(vias[2], pose[:2]) == pytest.approx(1.0)
-    assert math.dist(vias[2], vias[0]) == pytest.approx(2.0)
 
 
 def test_robot_blocked_both_ways_ends_up_pivoting():
@@ -659,8 +674,18 @@ def test_full_mission_gets_past_a_long_wall():
     assert m.stats.bumps >= 2 and m.stats.trees_skipped == 0
 
 
-def test_wall_too_long_to_get_past_leaves_the_tree_out_and_ends_the_mission():
+def test_long_wall_costs_few_bumps():
     trees = [(4.0, 4.0)]
     apples = ring_apples(trees, per_tree=3)
     m, basket, remaining, t, _ = run_world(apples, trees=trees, crates=_wall(8), max_time=1500.0)
+    assert m.state == DONE and not remaining
+    assert m.stats.bumps <= 6 and m.stats.trees_skipped == 0
+
+
+def test_tree_walled_in_is_left_out_and_the_mission_ends():
+    trees = [(4.0, 4.0)]
+    apples = ring_apples(trees, per_tree=3)
+    # Ring of crates, 3 m around the trunk.
+    crates = [(4.0 + 3.0 * math.cos(i * 0.1), 4.0 + 3.0 * math.sin(i * 0.1), 0.15) for i in range(63)]
+    m, basket, remaining, t, _ = run_world(apples, trees=trees, crates=crates, max_time=2500.0)
     assert m.state == DONE and m.stats.trees_skipped == 1 and len(remaining) == 3

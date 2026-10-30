@@ -24,7 +24,8 @@ back, or forward if it still touches something, and gives up what it was doing: 
 A bump away from any trunk reveals an unknown obstacle: the edge of the chassis facing the direction of
 travel touched it, somewhere along its width, so three points of that edge are remembered for the whole
 mission; every move plans around them
-and views too close to them are dropped; the interrupted apple or view gets one more try.
+and views too close to them are dropped; the interrupted apple or view gets one more try. A tree still
+not reached after `max_goto_bumps` bumps is put off to the end of the loop, then left out.
 
 `step(pose, now)` returns the velocity command for the current state; the caller feeds events
 with `on_detections`, `on_picked`, `on_bump`, `on_basket_full` and `on_unloaded`, and calls the unload
@@ -93,10 +94,8 @@ class MissionParams:
     bump_pick_clearance: float = 0.55  # m, same for a straight approach to an apple
     bump_merge: float = 0.1         # m, a contact this close to a known one is the same point
     bump_trunk_gate: float = 0.5    # m, a contact this close to a trunk axis is that trunk
-    max_goto_bumps: int = 8         # bumps on the way to a tree before leaving that tree out
-    sidestep: float = 1.0           # m, sidestep after a second bump in a row while travelling,
-                                    # this much longer each time (long obstacle), then the other side
-    sidestep_tries: int = 3         # sidesteps on one side before trying the other one
+    max_goto_bumps: int = 8         # bumps on the way to a tree before putting it off to the end of
+                                    # the loop, then leaving it out if that happens again
 
 
 @dataclass
@@ -149,8 +148,9 @@ class Mission:
         self.hit_obstacle = None    # contact point of the current escape
         self.bump_tried = set()     # tracks and views already given one more try after a bump
         self.goto_bumps = 0
-        self.sidestep_from = None
-        self.via = None             # latest sidestep point
+        self.furthest_tree = 0      # the loop goes on from there after a put off tree
+        self.put_off = []           # trees to come back to at the end of the loop
+        self.retried = set()        # trees already put off once in this loop
         # ANCHOR bookkeeping
         self.anchor_fixed = False
         self.anchor_start = None
@@ -217,6 +217,8 @@ class Mission:
             self._set_state(DONE)
             return
         self.tree = 0
+        self.furthest_tree = 0
+        self.retried = set()
         self.grids = {}
         self._enter_goto_tree()
 
@@ -327,26 +329,6 @@ class Mission:
         return plan_path(start or self._pose[:2], goal, trunks, clearance, bumps=self.obstacles,
                          bump_clearance=self.p.bump_clearance)
 
-    def _sidestep(self):
-        """Repeated bumps on a move: planning from contact points alone does not get past that
-        obstacle, so go sideways first, further each time from where this started, then on the other
-        side, then towards the goal again."""
-        if self.goto_bumps < 2:
-            self.sidestep_from = None
-            return
-        if self.sidestep_from is None:
-            self.sidestep_from = self._pose[:2]
-        x, y = self.sidestep_from
-        goal = self.path[-1]
-        d = max(math.dist((x, y), goal), 1e-6)
-        ux, uy = (goal[0] - x) / d, (goal[1] - y) / d
-        k = self.goto_bumps - 1
-        n = self.p.sidestep_tries
-        side = self.p.sidestep * (k if k <= n else n - k)
-        self.via = (x - side * uy, y + side * ux)
-        self.path = (self._plan(self.via, self.trees, self.p.travel_clearance)
-                     + self._plan(goal, self.trees, self.p.travel_clearance, start=self.via))
-
     def _travel_path(self, goal, clearance):
         return self._plan(goal, self.trees, clearance)
 
@@ -403,10 +385,25 @@ class Mission:
         self.stats.trees_searched += 1
         self._advance_tree(note)
 
+    def _put_off_tree(self):
+        """Too many bumps on the way to this tree: come back at the end of the loop, from another
+        side and knowing more obstacles; leave it out if that fails too."""
+        if self.tree in self.retried:
+            self.stats.trees_skipped += 1
+            self._advance_tree(f'tree {self.tree} out of reach')
+        else:
+            self.retried.add(self.tree)
+            self.put_off.append(self.tree)
+            self._advance_tree(f'tree {self.tree} put off')
+
     def _advance_tree(self, note):
         self.goto_bumps = 0
-        self.tree += 1
-        if self.tree >= len(self.trees):
+        self.tree = max(self.tree, self.furthest_tree) + 1
+        self.furthest_tree = self.tree
+        if self.tree >= len(self.trees) and self.put_off:
+            self.tree = self.put_off.pop(0)
+            self._enter_goto_tree(note)
+        elif self.tree >= len(self.trees):
             self.tree = len(self.trees) - 1
             self._enter_goto_base(resume=False, note=f' ({note})')
         else:
@@ -553,15 +550,12 @@ class Mission:
         elif self.state == GOTO_TREE:
             self.goto_bumps += 1
             if self.goto_bumps >= self.p.max_goto_bumps:
-                self.stats.trees_skipped += 1
-                self._advance_tree(f'tree {self.tree} out of reach')
+                self._put_off_tree()
             else:
                 self._enter_goto_tree(f'bump{where}')
-                self._sidestep()
         elif self.state == GOTO_BASE:
             self.goto_bumps += 1
             self._enter_goto_base(self.resume_tree, f' (bump{where})')
-            self._sidestep()
 
     def _skip_view(self, note):
         self.k += 1

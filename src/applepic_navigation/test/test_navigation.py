@@ -6,7 +6,7 @@ import pytest
 from applepic_navigation.controller import (
     ControllerParams, compute_command, wrap_angle, yaw_from_quaternion)
 from applepic_navigation.route import (
-    approach_points, build_route, load_orchard, segment_clearance)
+    approach_points, build_route, load_orchard, plan_path, segment_clearance)
 
 CONFIG = os.path.join(
     os.path.dirname(__file__), '..', '..', 'applepic_gazebo', 'config', 'orchard.yaml')
@@ -86,3 +86,37 @@ def test_unicycle_completes_loop_without_hitting_trees(config):
     trees = [tuple(t) for t in config['trees']]
     min_d = min(math.dist(p, t) for p in traj for t in trees)
     assert min_d > 1.8  # controller overshoot stays small
+
+
+TREES = [(4, 4), (10, 4), (16, 4), (16, 10), (10, 10), (4, 10)]
+LOG = [(10.1 + 0.3 * i, 11.75) for i in range(-3, 4)]
+
+
+def test_trunk_detour_does_not_cross_the_points_just_hit():
+    # Seen in simulation: 1.5 m from a trunk, the detour went straight back through the log.
+    start = (10.4, 11.5)
+    path = plan_path(start, (0.0, 0.0), TREES, 1.9, bumps=LOG, bump_clearance=0.7)
+    points = [start] + path
+    others = [o for o in LOG if math.dist(o, start) >= 0.7]
+    assert min(segment_clearance(a, b, others) for a, b in zip(points, points[1:])) >= 0.7
+    assert path[-1] == (0.0, 0.0)
+
+
+def test_detours_kept_when_they_avoid_the_bump_points():
+    start, goal = (0.0, 0.0), (8.0, 0.0)
+    assert plan_path(start, goal, [], 1.9, bumps=[(4.0, 5.0)], bump_clearance=0.7) == [goal]
+
+
+def test_bump_clearance_lowered_to_pass_a_narrow_gap():
+    # Wall with a 1.3 m gap: free at 0.55 m, not at 0.7 m + grid margin.
+    wall = [(5.0, y * 0.2) for y in range(-20, 21) if abs(y * 0.2) >= 0.65]
+    path = plan_path((0.0, 0.0), (10.0, 0.0), [], 1.9, bumps=wall, bump_clearance=0.7)
+    points = [(0.0, 0.0)] + path
+    assert min(segment_clearance(a, b, wall) for a, b in zip(points, points[1:])) >= 0.5
+    assert max(abs(y) for _, y in points) < 2.0
+
+
+def test_no_way_through_falls_back_on_a_path_to_the_goal():
+    ring = [(5.0 + 2.0 * math.cos(i * 0.1), 2.0 * math.sin(i * 0.1)) for i in range(63)]
+    path = plan_path((0.0, 0.0), (5.0, 0.0), [], 1.9, bumps=ring, bump_clearance=0.7)
+    assert path[-1] == (5.0, 0.0)
