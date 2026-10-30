@@ -12,12 +12,12 @@ SEARCH visits `search_points` points on a circle of radius `search_radius` aroun
 `look_time` s. A CoverageGrid per tree records the ground the camera has seen (in SEARCH and
 PICK): search points whose view would add less than `min_gain` are skipped, and the tree is left
 once `coverage_goal` of its ground has been seen, unless a known apple is still waiting for a
-feasible approach. Apples (fused by an AppleTracker) within `apple_radius` of the trunk are picked
+feasible approach; an apple seen only once gets one more view aimed at it before leaving. Apples (fused by an AppleTracker) within `apple_radius` of the trunk are picked
 nearest first, provided the straight approach keeps the base away from the trunk.
 
 ANCHOR (optional, for a coarse GPS): a pose error would shift the search around the tree, so the
 robot first faces the trunk and creeps towards it until the localization reports a trunk fix (the
-trunk foot is just out of the camera view from the search circle).
+trunk foot is just out of the camera view from the search circle), then looks to both sides.
 
 `step(pose, now)` returns the velocity command for the current state; the caller feeds events
 with `on_detections`, `on_picked`, `on_basket_full` and `on_unloaded`, and calls the unload
@@ -66,6 +66,7 @@ class MissionParams:
     fill_in_offset: float = 0.6     # rad, candidate headings: trunk, +/- half and +/- this
     fill_in_radial: float = 0.2     # m, candidate fill-in views also this much inside/outside the
                                     # circle (sees the trunk foot / the outer ring edge)
+    relook_ahead: float = 1.0       # m, an apple to look at again is placed this far ahead (mid view)
     coverage_r_min: float = 0.4     # m, covered annulus around the trunk (apple ring + margin)
     coverage_r_max: float = 1.7     # m
     loops: int = 1                  # 0 = forever
@@ -73,6 +74,7 @@ class MissionParams:
     anchor_speed: float = 0.2       # m/s
     anchor_travel: float = 1.2      # m, longest creep towards the trunk
     anchor_stop: float = 0.7        # m, estimated distance to the trunk axis where the creep ends
+    anchor_scan: float = 0.8        # rad, look this much to each side after the creep
 
 
 @dataclass
@@ -108,12 +110,14 @@ class Mission:
         # SEARCH bookkeeping
         self.order = []             # views (x, y, yaw) to visit, in order
         self.fill_ins = 0
+        self.relooked = set()       # ids of the once-seen tracks already given an extra view
         self.k = 0                  # position in `order`
         self.phase = None           # move | face | look
         self.look_until = None
         # ANCHOR bookkeeping
         self.anchor_fixed = False
         self.anchor_start = None
+        self.anchor_scan = []       # headings still to look at once the creep is over
         # PICK bookkeeping
         self.target = None
         self.target_since = None
@@ -203,11 +207,8 @@ class Mission:
         return (tx + r * math.cos(angle), ty + r * math.sin(angle),
                 wrap_angle(angle + math.pi + offset))
 
-    def fill_in_view(self):
-        """View near the search circle adding the most coverage of the current tree, or None if
-        too little. Candidates: fill_in_angles positions x 3 radii x 5 headings."""
-        grid = self.grid(self.tree)
-        best, best_gain = None, self.p.fill_in_gain
+    def _candidate_views(self):
+        """fill_in_angles positions x 3 radii x 5 headings near the search circle."""
         r, dr, off = self.p.search_radius, self.p.fill_in_radial, self.p.fill_in_offset
         # Keep the views off the trunk-avoidance circle used to move between them.
         radii = {max(r - dr, self.p.circle_clearance + 0.05), r, r + dr}
@@ -215,11 +216,33 @@ class Mission:
             a = 2.0 * math.pi * i / self.p.fill_in_angles
             for radius in sorted(radii):
                 for o in (0.0, -off / 2, off / 2, -off, off):
-                    view = self.view_pose(self.tree, a, o, radius)
-                    g = grid.gain(view)
-                    if g > best_gain:
-                        best, best_gain = view, g
+                    yield self.view_pose(self.tree, a, o, radius)
+
+    def fill_in_view(self):
+        """View near the search circle adding the most coverage of the current tree, or None if
+        too little."""
+        grid = self.grid(self.tree)
+        best, best_gain = None, self.p.fill_in_gain
+        for view in self._candidate_views():
+            g = grid.gain(view)
+            if g > best_gain:
+                best, best_gain = view, g
         return best
+
+    def relook_view(self):
+        """View with an apple of this tree seen only once in the middle of the image, or None."""
+        once = [t for t in self.pending()
+                if t.views < self.tracker.min_views and t.id not in self.relooked]
+        if not once:
+            return None
+        self.relooked.add(once[0].id)
+        target = (once[0].x, once[0].y)
+
+        def miss(view):
+            mid = (view[0] + self.p.relook_ahead * math.cos(view[2]),
+                   view[1] + self.p.relook_ahead * math.sin(view[2]))
+            return math.dist(mid, target)
+        return min(self._candidate_views(), key=miss)
 
     def pending(self):
         """Active apples of the current tree, confirmed (not approachable from here) or seen once."""
@@ -230,6 +253,11 @@ class Mission:
     def _skip_covered(self):
         """Advance self.k past views adding no coverage, append fill-in views once the circle is
         done; return True when the tree is finished."""
+        if self.k >= len(self.order):
+            view = self.relook_view()
+            if view is not None:
+                self.order.append(view)
+                return False
         if not self.p.coverage or self.pending():
             return self.k >= len(self.order)
         grid = self.grid(self.tree)
@@ -261,6 +289,7 @@ class Mission:
     def _enter_anchor(self):
         self.anchor_fixed = False
         self.anchor_start = None
+        self.anchor_scan = None
         self._set_state(ANCHOR)
 
     def _enter_search(self, resume=False, note=''):
@@ -379,16 +408,29 @@ class Mission:
         x, y, yaw = self._pose
         tx, ty = self.trees[self.tree]
         if self.anchor_start is None:
-            err = wrap_angle(math.atan2(ty - y, tx - x) - yaw)
-            if abs(err) > self.p.face_tolerance:
-                w = max(-self.p.max_face_rate, min(self.p.max_face_rate, self.p.face_gain * err))
+            w = self._face(math.atan2(ty - y, tx - x))
+            if w is not None:
                 return 0.0, w
             self.anchor_start = (x, y)
-        if (math.dist(self.anchor_start, (x, y)) >= self.p.anchor_travel
-                or math.dist((x, y), (tx, ty)) <= self.p.anchor_stop):
-            self._enter_search(note='no trunk fix')
-            return 0.0, 0.0
-        return self.p.anchor_speed, 0.0
+        if self.anchor_scan is None:
+            if (math.dist(self.anchor_start, (x, y)) < self.p.anchor_travel
+                    and math.dist((x, y), (tx, ty)) > self.p.anchor_stop):
+                return self.p.anchor_speed, 0.0
+            self.anchor_scan = [yaw + self.p.anchor_scan, yaw - self.p.anchor_scan]
+        while self.anchor_scan:
+            w = self._face(self.anchor_scan[0])
+            if w is not None:
+                return 0.0, w
+            self.anchor_scan.pop(0)
+        self._enter_search(note='no trunk fix')
+        return 0.0, 0.0
+
+    def _face(self, heading):
+        """Rotation rate towards `heading`, None once facing it."""
+        err = wrap_angle(heading - self._pose[2])
+        if abs(err) <= self.p.face_tolerance:
+            return None
+        return max(-self.p.max_face_rate, min(self.p.max_face_rate, self.p.face_gain * err))
 
     def _step_search(self, now):
         cands = self.candidates()
@@ -402,9 +444,8 @@ class Mission:
                 return v, w
             self.phase = 'face'
         if self.phase == 'face':
-            err = wrap_angle(self.order[self.k][2] - self._pose[2])
-            if abs(err) > self.p.face_tolerance:
-                w = max(-self.p.max_face_rate, min(self.p.max_face_rate, self.p.face_gain * err))
+            w = self._face(self.order[self.k][2])
+            if w is not None:
                 return 0.0, w
             self.phase, self.look_until = 'look', now + self.p.look_time
         if now < self.look_until:

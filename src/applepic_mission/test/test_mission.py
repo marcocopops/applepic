@@ -349,16 +349,40 @@ def test_anchor_creeps_to_the_trunk_until_a_fix():
 def test_anchor_gives_up_after_the_longest_creep():
     m, x, y = _anchoring_mission()
     m.step((x, y, 0.0), 0.1)
-    m.step((x + m.p.anchor_travel + 0.01, y, 0.0), 0.2)
+    x += m.p.anchor_travel + 0.01
+    v, w = m.step((x, y, 0.0), 0.2)      # creep over: look to one side, then the other
+    assert m.state == ANCHOR and v == 0.0 and w > 0.0
+    v, w = m.step((x, y, m.p.anchor_scan), 0.3)
+    assert m.state == ANCHOR and w < 0.0
+    m.step((x, y, -m.p.anchor_scan), 0.4)
     assert m.state == SEARCH and m.stats.transitions[-1][2] == 'no trunk fix'
 
 
 def test_anchor_stops_near_the_estimated_trunk_and_on_a_full_basket():
     m, x, y = _anchoring_mission(anchor_travel=5.0)
     m.step((x, y, 0.0), 0.1)
-    m.step((TREES[0][0] - m.p.anchor_stop + 0.01, TREES[0][1], 0.0), 0.2)
-    assert m.state == SEARCH
+    v, w = m.step((TREES[0][0] - m.p.anchor_stop + 0.01, TREES[0][1], 0.0), 0.2)
+    assert m.state == ANCHOR and v == 0.0 and w != 0.0
     m, x, y = _anchoring_mission()
     m.on_basket_full(True)
     m.step((x, y, 0.0), 0.1)
     assert m.state == GOTO_BASE
+
+
+def test_apple_seen_once_gets_one_view_aimed_at_it_before_leaving():
+    m = make_mission(coverage=False)
+    x, y, yaw = at_search_point(m)
+    m.k = len(m.order) - 1
+    apple = (TREES[0][0] + 1.2, TREES[0][1] + 0.5)
+    m.on_detections([apple], stamp=0.0)         # one view only, never confirmed
+    m.phase, m.look_until = 'look', 0.0
+    m.step((x, y, yaw), 1.0)
+    assert m.state == SEARCH and m.k == len(m.order) - 1 and m.phase == 'move'
+    view = m.order[-1]
+    mid = (view[0] + m.p.relook_ahead * math.cos(view[2]),
+           view[1] + m.p.relook_ahead * math.sin(view[2]))
+    assert math.dist(mid, apple) < 0.5
+    # Still not confirmed after that view: the tree is left, the view is not requested twice.
+    m.phase, m.look_until = 'look', 0.0
+    m.step((x, y, yaw), 2.0)
+    assert m.state == GOTO_TREE and m.tree == 1

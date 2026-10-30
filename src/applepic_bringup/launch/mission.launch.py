@@ -39,9 +39,11 @@ def generate_launch_description():
             'trajectory_csv': LaunchConfiguration('trajectory_csv'),
             'exit_when_done': ParameterValue(LaunchConfiguration('exit_when_done'),
                                              value_type=bool),
-            # Only the GPS mode has an error to correct on the trunks.
+            # Only a coarse GPS has an error worth correcting on the trunks (RTK does not).
             'anchor': ParameterValue(PythonExpression(
-                ["'", LaunchConfiguration('localization'), "' == 'gps'"]), value_type=bool),
+                ["'", LaunchConfiguration('localization'), "' == 'gps' and max(",
+                 LaunchConfiguration('gps_noise'), ', ', LaunchConfiguration('gps_bias'),
+                 ') > 0.1']), value_type=bool),
         }],
         output='screen',
     )
