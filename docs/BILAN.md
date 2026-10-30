@@ -30,6 +30,11 @@
   déposées, 0 échec** (avant corrections : 1 à 3 pommes perdues par verger : zones jamais vues,
   pommes poussées ou projetées par le châssis, préhenseur qui gelait). Mission un peu plus lente
   (725 s simulées sur le verger par défaut, 800–870 s sur les autres).
+- M9 GPS (session 12) : **GPS simulé bruité + localisation** (EKF maison GPS + roues + gyroscope,
+  robot_localization n'étant pas installé). `make e2e LOCALIZATION=gps` : GPS RTK (2 cm) → 29/29
+  comme avec la vérité terrain (erreur de pose 8 mm en moyenne) ; GPS 0,3 m + biais 0,3 m → 29/29 ;
+  GPS « grand public » 0,5 m + biais 1 m → **23/29, FAIL** (la recherche autour des arbres est décalée
+  de 1 à 2 m). Conclusion : il faut du RTK (ou un recalage sur les troncs, prochaine étape).
 - M8 : **démo `make demo`** (GUI Gazebo + RViz : verger, trajectoire, détections, texte d'état
   au-dessus du robot, image caméra annotée). Vérifié : lancée sur l'écran de cette machine pendant
   90 s (deux fenêtres ouvertes, 4 pommes ramassées, captures `artifacts/demo_{rviz,gazebo}.png`,
@@ -62,6 +67,9 @@ ros2 launch applepic_bringup mission.launch.py headless:=false   # MISSION COMPL
 ros2 topic echo /mission/status   # transitions de la mission (autre terminal)
 make e2e   # test de bout en bout headless chronométré (~5 min) -> PASS/FAIL + métriques
 make e2e E2E_SEED=7   # idem sur un autre verger (autres positions de pommes)
+make e2e LOCALIZATION=gps                              # idem avec GPS RTK simulé + EKF
+make e2e LOCALIZATION=gps GPS_NOISE=0.5 GPS_BIAS=1.0   # GPS grand public (échoue, voir §4)
+make demo LOCALIZATION=gps   # démo avec GPS (non testée avec la GUI, seulement en headless)
 ```
 
 ## 3. Décisions à relire
@@ -82,13 +90,18 @@ make e2e E2E_SEED=7   # idem sur un autre verger (autres positions de pommes)
 - D12 : couverture du sol quasi totale (plus lent, mais aucune pomme ratée), **garde au sol du robot
   portée à 10 cm** (le châssis passe au-dessus des pommes), le robot s'écarte d'une pomme sous le
   châssis avant de pivoter vers elle.
+- D13 : GPS = capteur gz sans bruit + bruit ajouté en mètres par un nœud (le bruit gz est en degrés),
+  localisation par **EKF maison** (pas robot_localization), cap par **gyroscope** (les roues glissent
+  de 7 % en pivot) ; défaut des launch : `localization:=truth` (le mode GPS est une option).
+- D14 : les pommes repérées sont ancrées au repère odométrique (insensibles aux sauts du GPS).
 - D10 : démo = même mission que M7 + nœud `mission_viz` (marqueurs RViz) ; vitesse réelle par
   défaut (`make demo DEMO_RTF=2` pour accélérer, non testé avec la GUI).
 
 ## 4. Cassé / bloqué
 - Rien de bloquant. Voir `docs/TODO_HUMAIN.md` (optionnel).
-- Démo GUI non relancée depuis les changements de la session 11 (vérifiée seulement en headless).
+- Démo GUI non relancée depuis les sessions 11–12 (vérifiée seulement en headless, y compris en GPS).
+- GPS non-RTK (biais ~1 m) : 23/29 pommes, la couverture autour des arbres est faussée.
 
 ## 5. Prochaines étapes
-- GPS simulé bruité + localisation (robot_localization à installer, voir TODO_HUMAIN), obstacles.
+- Recaler la pose sur les troncs vus par la caméra (pour un GPS non-RTK), obstacles, herbe haute.
 - Accélérer la mission sans perdre de pommes.

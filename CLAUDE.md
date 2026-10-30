@@ -9,7 +9,11 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 - Workflow natif par défaut (Docker optionnel : `make docker-image` puis `USE_DOCKER=1 make ...`).
 - GPU NVIDIA dispo : le rendu caméra headless (`gz sim -s --headless-rendering`) fonctionne (vérifié en session 1).
 - Topics robot : `/cmd_vel`, `/odom` (vérité terrain, repère monde), `/wheel_odom`, `/tf`,
-  `/joint_states`, `/camera/image_raw`, `/camera/camera_info`, `/clock`.
+  `/joint_states`, `/camera/image_raw`, `/camera/camera_info`, `/clock`, `/imu`, `/gps/raw` (fix parfait),
+  `/gps/fix` (bruité, mode gps).
+- Pose pour tous les nœuds : `/localization/odom` (repère `map`) + TF `map → odom → base_footprint`,
+  publiés par `localizer` (`localization:=truth` : vérité + identité ; `gps` : EKF GPS + roues + gyro).
+  Seul le préhenseur magique lit `/odom` (vérité terrain).
 - Pas installés : Nav2, robot_localization (voir `docs/TODO_HUMAIN.md`).
 
 ## Commandes
@@ -29,6 +33,9 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
   régénéré dans `artifacts/orchard_seed<n>.sdf`. Diagnostic : `grep -E "gave up|left tree" artifacts/e2e.log`
 - gz-transport Python : `GzNode.request` garde le GIL pendant l'attente (gèle tout le nœud) → pour un service gz,
   utiliser `gz service` en sous-processus (cf. `gripper.py`)
+- Localisation GPS : `make e2e|demo LOCALIZATION=gps [GPS_NOISE=0.02 GPS_BIAS=0.0]`, ou
+  `localization:=gps gps_noise:=… gps_bias:=… gps_bias_tau:=… gps_seed:=…` sur tous les launch ;
+  `artifacts/e2e_metrics.json` → clé `localization` (erreur vs vérité), tracé vérité en orange.
 - `make demo [DEMO_RTF=2]` / `ros2 launch applepic_bringup demo.launch.py [rtf:=2 rviz:=false headless:=true]` :
   démo M8 (GUI Gazebo + RViz, nœud `mission_viz` : `/mission_viz/markers|path`)
 - `scripts/check_demo.sh [timeout rtf]` : démo headless sans RViz, valide marqueurs/HUD/trajectoire
@@ -44,7 +51,9 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
 ## Arborescence
 - `src/applepic_description` : URDF/xacro du robot
 - `src/applepic_gazebo` : générateur de monde (verger), mondes SDF, bridge ros_gz
-- `src/applepic_navigation` : `controller.py` (suivi de point), `route.py` (boucle d'arbres), nœud `waypoint_follower`
+- `src/applepic_navigation` : `controller.py` (suivi de point), `route.py` (boucle d'arbres), nœud `waypoint_follower`,
+  `gps.py` (ENU ↔ géodésique, modèle d'erreur GPS), `localization.py` (EKF map → odom, dead reckoning,
+  `map_shift`), nœuds `gps_noise` et `localizer`
 - `src/applepic_perception` : `detector.py` (HSV), `projection.py` (pixel→sol), nœud `apple_detector`
 - `src/applepic_mission` : `basket.py`, `picking.py`, `apple_tracker.py` (fusion des détections), `approach.py`
   (préhenseur → point), nœuds `gripper` (ramassage magique : `/basket/count|full|picked|picked_point`,

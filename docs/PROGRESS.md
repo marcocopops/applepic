@@ -183,8 +183,36 @@
 - Coût : mission plus lente sur le verger par défaut (725 s contre 656 s) : on vise tout le sol.
 - Non vérifié : démo GUI après ces changements (seulement `check_demo.sh` headless).
 
-## Prochaine tâche : M9 — GPS simulé bruité ou obstacles
-- GPS : capteur navsat dans l'URDF + `/gps/fix` ; robot_localization non installé → écrire la commande
-  dans TODO_HUMAIN et faire en attendant un petit filtre maison (EKF 2D odom roues + GPS) testable en pur
-  Python ; mesurer l'erreur de pose et son effet sur le ramassage (`make e2e`).
-- Option : réduire le temps de mission (retours au point de recherche après chaque ramassage).
+## Session 12 (2026-10-30)
+- M9 GPS fait (D13, D14) : capteur gz `navsat` (fix parfait `/gps/raw`) + nœud `gps_noise` (bruit blanc +
+  biais Gauss-Markov en mètres, seed → `/gps/fix`), capteur IMU gz (gyroscope bruité + biais), nœud
+  `localizer` : EKF sur map → odom (module pur `applepic_navigation/localization.py`, conversions
+  `gps.py`), odométrie = vitesse roues + gyroscope. Argument de launch `localization:=truth|gps`
+  (+ `gps_noise`, `gps_bias`, `gps_bias_tau`, `gps_seed`) dans tous les launch ; `make e2e|demo
+  LOCALIZATION=gps GPS_NOISE=… GPS_BIAS=…`. Tous les consommateurs (détecteur, mission, suiveur, viz,
+  RViz) passent sur `/localization/odom` et le repère `map`. `eval_e2e.py` mesure l'erreur de
+  localisation contre la vérité terrain et enregistre la trajectoire vraie (tracée en orange).
+  - Trois problèmes trouvés en simu et corrigés : (1) cap des roues faux de 7 % sur les pivots →
+    divergence (10 m) → gyroscope ; (2) verrouillage de la porte de Mahalanobis → redémarrage sur le fix
+    après 20 rejets ; (3) pistes fantômes quand l'estimation bouge → pommes ancrées au repère odom.
+  - Vérifié `make e2e` (seed verger 42, seed bruit 0) :
+    | localisation | pommes | temps simulé | erreur pos. moy. / max | cap moy. |
+    |---|---|---|---|---|
+    | vérité terrain | 29/29 PASS | 720 s | 0 | 0 |
+    | GPS RTK σ 2 cm | 29/29 PASS | 719 s | 8 mm / 3,7 cm | 0,01 rad |
+    | GPS σ 0,3 m + biais 0,3 m | 29/29 PASS, 0 abandon | 781 s | 0,39 m / ~1 m | 0,04 rad |
+    | GPS σ 0,5 m + biais 1 m | 23/29 **FAIL** (13 abandons) | 1060 s | 1,26 m / 2,8 m | 0,18 rad |
+  - `scripts/check_demo.sh` PASS (truth et `LOCALIZATION=gps`), `check_perception.sh` et
+    `check_picking.sh` OK, `make test` : 108 tests, 0 échec (11 tests localisation/GPS).
+- Non vérifié : démo GUI avec `LOCALIZATION=gps` (seulement headless) ; un seul verger/seed de bruit
+  par niveau de GPS. Les nœuds `gps_noise`/`localizer` affichent la trace KeyboardInterrupt bénigne
+  au Ctrl+C (double SIGINT, comme `mission`).
+- Défaut laissé à `localization:=truth` (référence de non-régression) ; le mode GPS RTK donne le même
+  résultat.
+
+## Prochaine tâche : M9 — recaler la pose sur les troncs (GPS grand public) ou obstacles
+- Recalage par les troncs : détecter le tronc (marron, vertical) dans l'image quand le robot fait
+  face à l'arbre en SEARCH, en déduire la position du robot relative à l'arbre (position connue) et
+  corriger map → odom (mesure supplémentaire dans `OffsetEkf`). Objectif : `make e2e LOCALIZATION=gps
+  GPS_NOISE=0.5 GPS_BIAS=1.0` ≥ 90 %.
+- Sinon : obstacles / herbe haute, ou pommes partiellement cachées.

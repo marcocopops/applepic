@@ -177,3 +177,42 @@
     piste visée suivante (pomme laissée au sol, cas observé avec seed 42).
 - Écarté : supprimer les collisions pommes/robot (masquerait un vrai problème de conception) ;
   préhenseur « magique » à plus grande portée (idem) ; garder 98 % (plus rapide, pommes perdues).
+
+## D13 — GPS simulé + localisation maison (EKF sur map → odom), gyroscope pour le cap (session 12)
+- Contexte : M9 « GPS simulé bruité + robot_localization ». robot_localization n'est pas installé
+  (pas de sudo). Le bruit du capteur gz NavSat s'exprime **en degrés** (σ = 1 → ~100 km, mesuré),
+  identique en latitude et longitude (donc anisotrope en mètres), et n'est pas reproductible.
+- Décision :
+  - Capteur gz `navsat` sans bruit (`/gps/raw`) + nœud `gps_noise` : bruit blanc + biais
+    Gauss-Markov (σ, τ), isotrope en mètres, avec seed. Défaut : RTK (σ = 2 cm, sans biais), comme les
+    robots tondeuses du commerce.
+  - Nœud `localizer` : EKF à 3 états sur la transformation map → odom (et non sur la pose), mise à jour
+    par chaque fix GPS (porte de Mahalanobis), prédiction = dérive odométrique (variance ∝ distance,
+    angle, temps). Cap initial connu (robot à quai au dépôt, arg `yaw`). Après 20 fixes rejetés de
+    suite, redémarrage sur le fix courant.
+  - Odométrie : vitesse des roues + **gyroscope** (capteur gz IMU, bruit + biais, seed par
+    `gz sim --seed`). Mesuré : les roues sous-estiment de **7 %** les pivots sur place (glissement) ;
+    sans gyroscope, le cap dérivait de 0,3 rad en 100 s et le filtre divergeait (10 m, 24/29 pommes).
+  - Un seul contrat pour les consommateurs : `/localization/odom` (repère `map`) et TF
+    `map → odom → base_footprint`, quel que soit le mode (`localization:=truth` publie l'identité et
+    republie la vérité terrain). Le préhenseur « magique » garde la vérité terrain (c'est la physique).
+- Écarté : robot_localization (non installé ; à reconsidérer si l'humain l'installe, cf. TODO_HUMAIN) ;
+  bruit gz en degrés (anisotrope, non reproductible) ; filtre sur la pose complète (même résultat,
+  mais l'offset map → odom donne directement la TF standard REP-105) ; magnétomètre (le gyroscope suffit
+  avec les corrections GPS).
+
+## D14 — Pommes ancrées au repère odométrique (session 12)
+- Contexte : avec un GPS biaisé (σ 0,3 m + biais 0,3 m), l'estimation map → odom bouge pendant
+  l'approche d'une pomme : la pomme redétectée tombait hors de la porte d'association (0,15 m) →
+  pistes fantômes, 8 abandons, 27/29.
+- Décision : le nœud mission applique chaque changement de map → odom à toutes les pistes (et aux
+  comptes rendus de ramassage tardifs), via `localization.map_shift`. La géométrie robot ↔ pomme est
+  alors purement odométrique, insensible au GPS ; l'arbre, le cercle de recherche et la couverture
+  restent en repère map. Le préhenseur publie le point ramassé relativement au robot
+  (`base_footprint`, horodaté au déclenchement) et la mission le replace avec sa propre estimation.
+- Résultat : même scénario → 29/29, 0 abandon.
+- Écarté : tout faire en repère odom (arbres et couverture en dériveraient) ; élargir la porte
+  d'association (fusionnerait des pommes voisines).
+- Limite mesurée : avec un GPS « grand public » (σ 0,5 m + biais 1 m), la recherche autour des arbres
+  est décalée de 1 à 2 m → zones marquées « vues » sans l'avoir été, 23/29 (FAIL). Il faudrait du RTK,
+  ou recaler la pose sur les troncs vus par la caméra.
