@@ -1,6 +1,8 @@
-"""2D localization: EKF on the map -> odom transform, fusing wheel odometry and GPS fixes.
+"""2D localization: EKF on the map -> odom transform, fusing dead reckoning and GPS fixes.
 
-Wheel odometry is smooth and locally accurate but drifts; GPS is absolute but noisy. Rather than
+Dead reckoning (`DeadReckoning`: wheel speed + gyro yaw rate; the wheels alone under-measure
+in-place pivots by ~7 % because they slip) is smooth and locally accurate but drifts; GPS is
+absolute but noisy. Rather than
 filtering the robot pose, the filter estimates the (slowly varying) transform T = (tx, ty, theta)
 from the odometry frame to the map (world) frame, as robot_localization's navsat setup or AMCL
 do with map -> odom:
@@ -26,7 +28,11 @@ class LocalizationParams:
     drift_per_m: float = 0.02       # m
     yaw_drift_per_m: float = 0.02   # rad
     yaw_drift_per_rad: float = 0.02   # rad
+    yaw_drift_per_s: float = 0.002  # rad over 1 s (gyro bias), so the heading never locks
     gate: float = 16.0              # Mahalanobis^2 threshold (2 dof), larger fixes are rejected
+    max_rejections: int = 20        # consecutive rejected fixes before the filter re-opens
+    reopen_stddev: float = 0.5      # m, translation std added when it re-opens
+    reopen_yaw_stddev: float = 0.1  # rad
     antenna_x: float = 0.0          # m, GPS antenna ahead of base_footprint
     antenna_y: float = 0.0
 
@@ -50,8 +56,11 @@ class OffsetEkf:
         self.x = None              # (tx, ty, theta)
         self.P = None
         self.last_odom = None
+        self.last_t = None
         self.accepted = 0
         self.rejected = 0
+        self.consecutive_rejections = 0
+        self.reopened = 0
 
     @property
     def initialized(self):
@@ -76,17 +85,21 @@ class OffsetEkf:
                           self.p.initial_yaw_stddev ** 2])
         self.last_odom = odom_pose
 
-    def predict(self, odom_pose):
-        """Inflate the covariance with the odometry drift since the previous odom pose."""
+    def predict(self, odom_pose, t=None):
+        """Inflate the covariance with the odometry drift since the previous odom pose / time."""
         if not self.initialized:
             return
         lx, ly, lyaw = self.last_odom
         dist = math.hypot(odom_pose[0] - lx, odom_pose[1] - ly)
         turn = abs(wrap(odom_pose[2] - lyaw))
+        dt = 0.0 if t is None or self.last_t is None else max(t - self.last_t, 0.0)
         self.last_odom = odom_pose
+        if t is not None:
+            self.last_t = t
         # Random-walk drift: the variance grows linearly with the distance driven / angle turned.
         q_xy = self.p.drift_per_m ** 2 * dist
-        q_th = self.p.yaw_drift_per_m ** 2 * dist + self.p.yaw_drift_per_rad ** 2 * turn
+        q_th = (self.p.yaw_drift_per_m ** 2 * dist + self.p.yaw_drift_per_rad ** 2 * turn
+                + self.p.yaw_drift_per_s ** 2 * dt)
         if q_xy == 0.0 and q_th == 0.0:
             return
         # A heading error appearing at the robot rotates the map about the robot, not about the
@@ -97,8 +110,32 @@ class OffsetEkf:
         self.P = self.P + np.diag([q_xy, q_xy, 0.0]) + q_th * np.outer(G, G)
 
     def update(self, gps_xy, odom_pose, gps_stddev=None):
-        """Fuse one GPS fix (map x, y) taken at odom pose `odom_pose`. True if accepted."""
-        self.predict(odom_pose)
+        """Fuse one GPS fix (map x, y) taken at odom pose `odom_pose`. True if accepted.
+
+        After `max_rejections` consecutive rejections the estimate is assumed lost (e.g. an
+        unmodelled odometry error made the filter over-confident): the covariance is inflated so
+        that the fixes pull it back instead of being rejected forever.
+        """
+        if self._update(gps_xy, odom_pose, gps_stddev):
+            self.consecutive_rejections = 0
+            return True
+        self.consecutive_rejections += 1
+        if self.consecutive_rejections < self.p.max_rejections:
+            return False
+        self.reopen(odom_pose)
+        self.consecutive_rejections = 0
+        return self._update(gps_xy, odom_pose, gps_stddev)
+
+    def reopen(self, odom_pose):
+        """Inflate the covariance (robot position and heading uncertain again)."""
+        tx, ty, _ = self.x
+        x, y, _ = compose(self.x, odom_pose)
+        G = np.array([y - ty, -(x - tx), 1.0])   # heading uncertainty about the robot
+        self.P = (self.P + np.diag([self.p.reopen_stddev ** 2] * 2 + [0.0])
+                  + self.p.reopen_yaw_stddev ** 2 * np.outer(G, G))
+        self.reopened += 1
+
+    def _update(self, gps_xy, odom_pose, gps_stddev):
         tx, ty, th = self.x
         ax, ay = self._antenna(odom_pose)
         c, s = math.cos(th), math.sin(th)
@@ -130,6 +167,31 @@ class OffsetEkf:
         x, y, _ = compose(self.x, odom_pose)
         J = np.array([[1.0, 0.0, -(y - ty)], [0.0, 1.0, x - tx]])
         return math.sqrt(max(np.trace(J @ self.P @ J.T) / 2.0, 0.0))
+
+
+class DeadReckoning:
+    """Odometry pose (x, y, yaw) from the wheel forward speed and the gyro yaw rate."""
+
+    def __init__(self):
+        self.pose = (0.0, 0.0, 0.0)
+        self.v = 0.0
+        self.t = None
+
+    def set_speed(self, v):
+        self.v = v
+
+    def integrate(self, t, yaw_rate):
+        """Advance to time t with the current speed and `yaw_rate` (midpoint heading)."""
+        if self.t is None or t <= self.t:
+            self.t = t if self.t is None else self.t
+            return self.pose
+        dt = min(t - self.t, 0.2)   # a gap in the IMU stream must not teleport the robot
+        self.t = t
+        x, y, yaw = self.pose
+        mid = yaw + 0.5 * yaw_rate * dt
+        self.pose = (x + self.v * dt * math.cos(mid), y + self.v * dt * math.sin(mid),
+                     wrap(yaw + yaw_rate * dt))
+        return self.pose
 
 
 class PoseErrorTracker:

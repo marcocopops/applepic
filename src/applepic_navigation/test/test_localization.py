@@ -121,3 +121,30 @@ def test_pose_error_tracker_interpolates_truth():
     assert s['samples'] == 2
     assert abs(s['position_error_mean_m'] - 0.1) < 1e-9
     assert s['heading_error_max_rad'] < 1e-9
+
+
+def test_dead_reckoning_integrates_speed_and_yaw_rate():
+    from applepic_navigation.localization import DeadReckoning
+    dr = DeadReckoning()
+    dr.integrate(0.0, 0.0)
+    dr.set_speed(0.5)
+    for k in range(1, 101):        # quarter circle of radius 0.5 / (pi / 4) m in 2 s
+        dr.integrate(0.02 * k, math.pi / 4)
+    x, y, yaw = dr.pose
+    r = 0.5 / (math.pi / 4)
+    assert abs(yaw - math.pi / 2) < 1e-9
+    assert abs(x - r) < 1e-3 and abs(y - r) < 1e-3
+    dr.integrate(100.0, 0.0)       # long gap: capped step, no teleport
+    assert math.hypot(dr.pose[0] - x, dr.pose[1] - y) <= 0.1 + 1e-9
+
+
+def test_ekf_reopens_after_lockout():
+    ekf = OffsetEkf(LocalizationParams(gps_stddev=0.02, max_rejections=5))
+    ekf.initialize((0.0, 0.0), (0.0, 0.0, 0.0), 0.0)
+    for _ in range(50):
+        ekf.update((0.0, 0.0), (0.0, 0.0, 0.0))
+    # The odometry jumped 2 m without the filter knowing: fixes are rejected, then re-accepted.
+    results = [ekf.update((0.0, 0.0), (2.0, 0.0, 0.0)) for _ in range(30)]
+    assert not any(results[:4]) and ekf.reopened == 1
+    x, y, _ = ekf.pose((2.0, 0.0, 0.0))
+    assert math.hypot(x, y) < 0.05

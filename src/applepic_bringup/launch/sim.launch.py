@@ -29,6 +29,9 @@ def _setup(context):
         os.path.join(description_share, 'urdf', 'applepic.urdf.xacro')).toxml()
 
     gz_args = f'-r {world}'
+    seed = int(LaunchConfiguration('gps_seed').perform(context))
+    if seed >= 0:
+        gz_args = f'--seed {seed} {gz_args}'   # gz sensor noise (IMU gyro) reproducible
     if headless:
         gz_args = f'-s --headless-rendering {gz_args}'
 
@@ -69,17 +72,6 @@ def _setup(context):
         output='screen',
     )
     localization = _localization_mode(context)
-    # odom -> base_footprint: ground truth, or wheel odometry when the localizer provides map -> odom.
-    tf_source = '/wheel_odom/tf' if localization == 'gps' else '/odom/tf'
-    tf_bridge = Node(
-        package='ros_gz_bridge',
-        executable='parameter_bridge',
-        name='tf_bridge',
-        arguments=[f'{tf_source}@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V'],
-        remappings=[(tf_source, '/tf')],
-        parameters=[{'use_sim_time': True}],
-        output='screen',
-    )
     localizer = Node(
         package='applepic_navigation',
         executable='localizer',
@@ -87,8 +79,19 @@ def _setup(context):
                      'initial_yaw': float(LaunchConfiguration('yaw').perform(context))}],
         output='screen',
     )
-    nodes = [gz_sim, robot_state_publisher, spawn, bridge, tf_bridge, localizer]
-    if localization == 'gps':
+    nodes = [gz_sim, robot_state_publisher, spawn, bridge, localizer]
+    if localization == 'truth':
+        # odom -> base_footprint from the ground truth (in gps mode the localizer publishes it).
+        nodes.append(Node(
+            package='ros_gz_bridge',
+            executable='parameter_bridge',
+            name='tf_bridge',
+            arguments=['/odom/tf@tf2_msgs/msg/TFMessage[gz.msgs.Pose_V'],
+            remappings=[('/odom/tf', '/tf')],
+            parameters=[{'use_sim_time': True}],
+            output='screen',
+        ))
+    else:
         nodes.append(Node(
             package='applepic_navigation',
             executable='gps_noise',

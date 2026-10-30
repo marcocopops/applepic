@@ -39,5 +39,10 @@
   ros_type_name: sensor_msgs/msg/NavSatFix
   gz_type_name: gz.msgs.NavSat
   direction: GZ_TO_ROS
-# odom -> base_footprint TF: bridged by sim.launch.py from /odom/tf (ground truth) or
-# /wheel_odom/tf (GPS localization), depending on the `localization` argument.
+# odom -> base_footprint TF: bridged by sim.launch.py from /odom/tf (ground truth) with
+# localization:=truth, published by the localizer (dead reckoning) with localization:=gps.
+- ros_topic_name: /imu
+  gz_topic_name: /imu
+  ros_type_name: sensor_msgs/msg/Imu
+  gz_type_name: gz.msgs.IMU
+  direction: GZ_TO_ROS

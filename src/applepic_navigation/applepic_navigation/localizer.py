@@ -1,13 +1,15 @@
 """ROS node: robot pose in the map (world) frame for navigation, perception and the mission.
 
-mode `gps`:   EKF (`localization.OffsetEkf`) fusing wheel odometry (/wheel_odom, frame odom at
-              the spawn pose) and GPS fixes (/gps/fix, converted to the world ENU frame with the
-              orchard datum). Publishes TF map -> odom (the wheel odometry provides odom -> base).
+mode `gps`:   dead reckoning (wheel speed from /wheel_odom + gyro yaw rate from /imu, frame odom
+              at the start pose) fused with GPS fixes (/gps/fix, converted to the world ENU frame
+              with the orchard datum) by `localization.OffsetEkf`. Publishes TF map -> odom and
+              odom -> base_footprint.
 mode `truth`: republishes the ground-truth /odom (already in the world frame) and a static
               identity map -> odom, so that consumers are the same in both modes.
 
-Subscribes: /wheel_odom + /gps/fix (gps) or /odom (truth), nav_msgs/Odometry / NavSatFix.
-Publishes:  /localization/odom (nav_msgs/Odometry, frame map), TF map -> odom.
+Subscribes: /wheel_odom + /imu + /gps/fix (gps) or /odom (truth).
+Publishes:  /localization/odom (nav_msgs/Odometry, frame map, 50 Hz in gps mode),
+            TF map -> odom (+ odom -> base_footprint in gps mode).
 """
 from collections import deque
 import math
@@ -18,22 +20,16 @@ from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import NavSatFix
+from sensor_msgs.msg import Imu, NavSatFix
 from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
 
-from applepic_navigation.controller import yaw_from_quaternion
 from applepic_navigation.gps import geodetic_to_enu
-from applepic_navigation.localization import LocalizationParams, OffsetEkf, wrap
+from applepic_navigation.localization import DeadReckoning, LocalizationParams, OffsetEkf, wrap
 from applepic_navigation.route import load_orchard
 
 
 def _stamp(msg):
     return msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-
-
-def _pose(msg):
-    p, q = msg.pose.pose.position, msg.pose.pose.orientation
-    return p.x, p.y, yaw_from_quaternion(q.x, q.y, q.z, q.w)
 
 
 def _set_yaw(q, yaw):
@@ -51,6 +47,7 @@ class Localizer(Node):
         self.declare_parameter('initial_yaw', 0.0)   # map heading at start (docked at the depot)
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('odom_frame', 'odom')
+        self.declare_parameter('base_frame', 'base_footprint')
         defaults = LocalizationParams()
         for name, value in vars(defaults).items():
             self.declare_parameter(name, value)
@@ -58,12 +55,14 @@ class Localizer(Node):
         self.mode = gp('mode').value
         self.map_frame = gp('map_frame').value
         self.odom_frame = gp('odom_frame').value
+        self.base_frame = gp('base_frame').value
         self.initial_yaw = float(gp('initial_yaw').value)
         sc = load_orchard(gp('orchard_config').value)['spherical_coordinates']
         self.datum = (float(sc['latitude_deg']), float(sc['longitude_deg']))
         self.ekf = OffsetEkf(LocalizationParams(
             **{n: type(v)(gp(n).value) for n, v in vars(defaults).items()}))
-        self.history = deque(maxlen=100)   # (t, odom pose), wheel odometry at 20 Hz: 5 s
+        self.dead_reckoning = DeadReckoning()
+        self.history = deque(maxlen=250)   # (t, odom pose) at the IMU rate (50 Hz): 5 s
         self.pub = self.create_publisher(Odometry, '/localization/odom', 10)
 
         if self.mode == 'truth':
@@ -77,6 +76,7 @@ class Localizer(Node):
         elif self.mode == 'gps':
             self.tf = TransformBroadcaster(self)
             self.create_subscription(Odometry, '/wheel_odom', self._on_wheel_odom, 20)
+            self.create_subscription(Imu, '/imu', self._on_imu, 50)
             self.create_subscription(NavSatFix, '/gps/fix', self._on_fix, 10)
         else:
             raise ValueError(f'unknown localization mode {self.mode!r} (truth or gps)')
@@ -110,30 +110,47 @@ class Localizer(Node):
             self.ekf.initialize(xy, pose, self.initial_yaw, stddev)
             self.get_logger().info(f'initialized at ({xy[0]:.2f}, {xy[1]:.2f}), '
                                    f'heading {self.initial_yaw:.2f} rad')
-        elif not self.ekf.update(xy, pose, stddev):
-            self.get_logger().warn(f'GPS fix rejected (total {self.ekf.rejected})',
-                                   throttle_duration_sec=5.0)
+        else:
+            reopened = self.ekf.reopened
+            if not self.ekf.update(xy, pose, stddev):
+                self.get_logger().warn(f'GPS fix rejected (total {self.ekf.rejected})',
+                                       throttle_duration_sec=5.0)
+            if self.ekf.reopened != reopened:
+                self.get_logger().warn(
+                    f'{self.ekf.p.max_rejections} fixes rejected in a row: covariance inflated '
+                    f'(re-opened {self.ekf.reopened} times)')
 
     def _on_wheel_odom(self, msg):
-        pose = _pose(msg)
-        self.history.append((_stamp(msg), pose))
-        if not self.ekf.initialized:
-            return
-        self.ekf.predict(pose)
-        tx, ty, th = self.ekf.x
+        self.dead_reckoning.set_speed(msg.twist.twist.linear.x)
+
+    def _transform(self, stamp, parent, child, x, y, yaw):
         tf = TransformStamped()
-        tf.header.stamp = msg.header.stamp
-        tf.header.frame_id = self.map_frame
-        tf.child_frame_id = self.odom_frame
-        tf.transform.translation.x, tf.transform.translation.y = float(tx), float(ty)
-        _set_yaw(tf.transform.rotation, float(th))
-        self.tf.sendTransform(tf)
+        tf.header.stamp = stamp
+        tf.header.frame_id = parent
+        tf.child_frame_id = child
+        tf.transform.translation.x, tf.transform.translation.y = float(x), float(y)
+        _set_yaw(tf.transform.rotation, float(yaw))
+        return tf
+
+    def _on_imu(self, msg):
+        t = _stamp(msg)
+        wz = msg.angular_velocity.z
+        pose = self.dead_reckoning.integrate(t, wz)
+        self.history.append((t, pose))
+        transforms = [self._transform(msg.header.stamp, self.odom_frame, self.base_frame, *pose)]
+        if not self.ekf.initialized:
+            self.tf.sendTransform(transforms)
+            return
+        self.ekf.predict(pose, t)
+        transforms.append(self._transform(msg.header.stamp, self.map_frame, self.odom_frame,
+                                          *self.ekf.x))
+        self.tf.sendTransform(transforms)
 
         x, y, yaw = self.ekf.pose(pose)
         out = Odometry()
         out.header.stamp = msg.header.stamp
         out.header.frame_id = self.map_frame
-        out.child_frame_id = msg.child_frame_id
+        out.child_frame_id = self.base_frame
         out.pose.pose.position.x, out.pose.pose.position.y = x, y
         _set_yaw(out.pose.pose.orientation, yaw)
         var = self.ekf.position_stddev(pose) ** 2
@@ -141,7 +158,8 @@ class Localizer(Node):
         cov[0] = cov[7] = var
         cov[35] = float(self.ekf.P[2, 2])
         out.pose.covariance = cov
-        out.twist = msg.twist   # body-frame velocities from the wheels
+        out.twist.twist.linear.x = self.dead_reckoning.v   # body frame
+        out.twist.twist.angular.z = wz
         self.pub.publish(out)
 
 

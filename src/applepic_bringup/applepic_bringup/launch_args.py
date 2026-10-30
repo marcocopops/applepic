@@ -7,7 +7,7 @@ LOCALIZATION_ARGS = (
     ('gps_noise', '0.02', 'm, GPS white noise std (0.02 = RTK grade)'),
     ('gps_bias', '0.0', 'm, GPS wandering bias std'),
     ('gps_bias_tau', '60.0', 's, GPS bias correlation time'),
-    ('gps_seed', '0', 'GPS error seed, < 0: random'),
+    ('gps_seed', '0', 'seed of the GPS error and of the gz sensor noise, < 0: random'),
 )
 
 
