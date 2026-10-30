@@ -5,7 +5,8 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from applepic_gazebo.orchard import (
-    build_manifest, build_world_sdf, generate_apples, generate_grass, load_config)
+    build_manifest, build_world_sdf, generate_apples, generate_grass, load_config,
+    obstacle_clearance)
 
 CONFIG = os.path.join(os.path.dirname(__file__), '..', 'config', 'orchard.yaml')
 HARD_CONFIG = os.path.join(os.path.dirname(__file__), '..', 'config', 'orchard_hard.yaml')
@@ -95,3 +96,30 @@ def test_plain_world_has_no_grass(config):
     assert generate_grass(config, generate_apples(config)) == []
     manifest = build_manifest(config, generate_apples(config))
     assert 'variant' not in manifest['apples'][0]
+
+
+def _obstacle_config():
+    return load_config(os.path.join(os.path.dirname(CONFIG), 'orchard_obstacles.yaml'))
+
+
+def test_obstacle_world_keeps_positions_and_adds_static_boxes(config):
+    hard = _obstacle_config()
+    apples = generate_apples(hard)
+    assert apples == generate_apples(config)
+    models = ET.fromstring(build_world_sdf(hard, apples)).find('world').findall('model')
+    obstacles = [m for m in models if m.get('name').startswith('obstacle_')]
+    assert len(obstacles) == len(hard['obstacles'])
+    assert all(m.find('static').text == 'true' for m in obstacles)
+
+
+def test_obstacle_clearance_follows_the_yaw():
+    log = {'position': [0.0, 0.0], 'size': [2.0, 0.2, 0.2], 'yaw': math.pi / 2}
+    assert obstacle_clearance(log, (0.0, 0.9)) == 0.0
+    assert obstacle_clearance(log, (0.9, 0.0)) == pytest.approx(0.8)
+
+
+def test_obstacle_on_an_apple_raises(config):
+    apples = generate_apples(config)
+    bad = dict(config, obstacles=[{'position': [apples[0].x, apples[0].y], 'size': [0.4, 0.4, 0.4]}])
+    with pytest.raises(ValueError):
+        build_world_sdf(bad, apples)

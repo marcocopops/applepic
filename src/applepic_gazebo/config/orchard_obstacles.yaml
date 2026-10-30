@@ -1,0 +1,47 @@
+# Orchard with obstacles the robot does not know: same layout and apple positions as orchard.yaml
+# (M9). The mission reads only the trees and the depot. Positions in world frame, metres.
+# Trees are visited in list order; the loop closes back on the first tree.
+world_name: orchard
+seed: 42
+
+ground:
+  center: [8.0, 6.0]
+  size: [40.0, 30.0]
+
+depot:
+  position: [0.0, 0.0]
+  size: [1.5, 1.5]
+
+# Map origin for the (later) simulated GPS: somewhere in Normandy.
+spherical_coordinates:
+  latitude_deg: 49.18
+  longitude_deg: -0.37
+  elevation: 50.0
+
+tree:
+  trunk_radius: 0.10
+  trunk_height: 1.6
+  canopy_radius: 1.1
+
+apples:
+  per_tree: [4, 7]          # inclusive range, drawn per tree
+  ring: [0.45, 1.6]         # min/max distance from the trunk axis
+  min_spacing: 0.15         # min distance between two apples
+  radius: 0.04
+  mass: 0.15
+
+trees:
+  - [4.0, 4.0]
+  - [10.0, 4.0]
+  - [16.0, 4.0]
+  - [16.0, 10.0]
+  - [10.0, 10.0]
+  - [4.0, 10.0]
+
+# size: [length, width, height]; the chassis passes over anything lower than 0.10 m.
+obstacles:
+  - {position: [7.0, 4.0], size: [0.5, 0.4, 0.4]}                 # crate, between trees 0 and 1
+  - {position: [16.0, 2.0], size: [0.5, 0.4, 0.4]}                # crate, on a search point of tree 2
+  - {position: [13.0, 10.0], size: [0.5, 0.4, 0.4], yaw: 0.5}     # crate, between trees 3 and 4
+  - {position: [10.0, 12.0], size: [1.2, 0.12, 0.2], yaw: 0.2}    # log, on a search point of tree 4
+  - {position: [5.9, 10.0], size: [1.2, 0.12, 0.2], yaw: 1.57}    # log, on a search point of tree 5
