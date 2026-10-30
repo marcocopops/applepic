@@ -49,6 +49,21 @@ def compose(offset, pose):
     return tx + c * x - s * y, ty + s * x + c * y, wrap(th + yaw)
 
 
+def map_shift(old, new):
+    """Function moving a map point (x, y) of the map -> odom estimate `old` to `new`.
+
+    The point keeps its odom-frame position: used to keep odometry-anchored things (apple tracks)
+    consistent with the robot when the GPS-driven estimate moves the map.
+    """
+    tx, ty, th = old
+    c, s = math.cos(th), math.sin(th)
+
+    def fn(p):
+        dx, dy = p[0] - tx, p[1] - ty
+        return compose(new, (c * dx + s * dy, -s * dx + c * dy, 0.0))[:2]
+    return fn
+
+
 class OffsetEkf:
 
     def __init__(self, params=None):

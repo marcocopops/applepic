@@ -116,6 +116,14 @@ class Mission:
     def on_basket_full(self, full):
         self.basket_full = bool(full)
 
+    def on_map_shift(self, fn):
+        """The localization moved the map relative to the odometry: fn maps old map (x, y) to new.
+
+        Apples are anchored to the continuous odometry frame, so the robot-to-apple geometry stays
+        odometric while a GPS-driven estimate wanders (no ghost duplicate tracks, no misses).
+        """
+        self.tracker.transform(fn)
+
     def on_picked(self, apple_xy):
         """The gripper picked the apple that was at `apple_xy`: retire the matching track."""
         self.stats.picked += 1

@@ -1,6 +1,8 @@
 import math
 import random
 
+import pytest
+
 from applepic_navigation.gps import enu_to_geodetic, geodetic_to_enu, GpsErrorModel
 from applepic_navigation.localization import compose, LocalizationParams, OffsetEkf, wrap
 
@@ -148,3 +150,14 @@ def test_ekf_reopens_after_lockout():
     assert not any(results[:4]) and ekf.reopened == 1
     x, y, _ = ekf.pose((2.0, 0.0, 0.0))
     assert math.hypot(x, y) < 0.05
+
+
+def test_map_shift_keeps_odom_position():
+    from applepic_navigation.localization import map_shift
+    old, new = (1.0, 2.0, 0.3), (1.2, 1.9, 0.35)
+    odom_point = (4.0, -1.0, 0.0)
+    before = compose(old, odom_point)[:2]
+    after = map_shift(old, new)(before)
+    expected = compose(new, odom_point)[:2]
+    assert math.hypot(after[0] - expected[0], after[1] - expected[1]) < 1e-9
+    assert map_shift(old, old)(before) == pytest.approx(before)

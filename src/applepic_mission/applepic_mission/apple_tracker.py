@@ -63,6 +63,11 @@ class AppleTracker:
             updated.append(t)
         return updated
 
+    def transform(self, fn):
+        """Move every track by fn((x, y)) -> (x, y), e.g. a change of the map -> odom estimate."""
+        for t in self.tracks:
+            t.x, t.y = fn((t.x, t.y))
+
     def confirmed(self):
         return [t for t in self.tracks if t.state == 'active' and t.views >= self.min_views]
 

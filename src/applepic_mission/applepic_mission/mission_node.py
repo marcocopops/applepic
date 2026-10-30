@@ -6,7 +6,8 @@ magic pick itself is done by the `gripper` node.
 
 Subscribes: /localization/odom (map frame), /apples/detections (PoseArray, map frame),
             /basket/full, /basket/picked_point (where the picked apple was, relative to the
-            robot when the pick was triggered: placed in the map with the pose at that time).
+            robot when the pick was triggered: placed in the map with the pose at that time),
+            TF map -> odom (apple tracks follow its changes: anchored to the odometry).
 Publishes:  /cmd_vel, ~/state (std_msgs/String, latched), ~/status (std_msgs/String),
             ~/stats (std_msgs/String, JSON, latched, on every transition and every
             `stats_period` s so the HUD distance/time stay live).
@@ -28,11 +29,13 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
+import tf2_ros
 
 from applepic_mission.apple_tracker import AppleTracker
 from applepic_mission.approach import ApproachParams
 from applepic_mission.mission import DONE, Mission, MissionParams
 from applepic_navigation.controller import ControllerParams, yaw_from_quaternion
+from applepic_navigation.localization import map_shift
 from applepic_navigation.route import load_orchard
 
 
@@ -64,7 +67,10 @@ class MissionNode(Node):
         self.exit_when_done = bool(gp('exit_when_done').value)
 
         self.pose = None
-        self.history = deque(maxlen=300)   # (t, pose) at the odometry rate: ~10 s
+        self.history = deque(maxlen=500)   # (t, pose, map -> odom) at the pose rate: ~10 s
+        self.map_odom = (0.0, 0.0, 0.0)    # latest map -> odom (tx, ty, theta)
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         self.start_time = None
         self.distance = 0.0
         self.unload_future = None
@@ -109,7 +115,8 @@ class MissionNode(Node):
         if self.pose is not None:
             self.distance += ((pose[0] - self.pose[0]) ** 2 + (pose[1] - self.pose[1]) ** 2) ** 0.5
         self.pose = pose
-        self.history.append((msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9, pose))
+        self.history.append((msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9, pose,
+                             self.map_odom))
         if self.csv_file:
             self.csv.writerow([f'{self._now():.2f}', f'{p.x:.3f}', f'{p.y:.3f}',
                                f'{pose[2]:.3f}', self.mission.state or 'INIT'])
@@ -124,23 +131,25 @@ class MissionNode(Node):
     def _pose_at(self, t):
         """Estimated pose closest to time t (latest if t is newer than the history)."""
         if not self.history:
-            return self.pose
+            return self.pose, self.map_odom
         times = [h[0] for h in self.history]
         i = bisect.bisect_left(times, t)
         if i == len(times):
-            return self.history[-1][1]
-        if i > 0 and t - times[i - 1] < times[i] - t:
             i -= 1
-        return self.history[i][1]
+        elif i > 0 and t - times[i - 1] < times[i] - t:
+            i -= 1
+        return self.history[i][1:]
 
     def _on_picked_point(self, msg):
         x, y = msg.point.x, msg.point.y
         if msg.header.frame_id == 'base_footprint':
-            pose = self._pose_at(msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9)
+            pose, map_odom = self._pose_at(msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9)
             if pose is None:
                 return
             c, s = math.cos(pose[2]), math.sin(pose[2])
-            x, y = pose[0] + c * x - s * y, pose[1] + s * x + c * y
+            # In the map as it was at pick time, then moved like the tracks since then.
+            x, y = map_shift(map_odom, self.map_odom)(
+                (pose[0] + c * x - s * y, pose[1] + s * x + c * y))
         self.mission.on_picked((x, y))
         self._status(f'picked apple at ({x:.2f}, {y:.2f}) (total {self.mission.stats.picked}, '
                      f'carried {self.mission.carried})')
@@ -165,9 +174,22 @@ class MissionNode(Node):
             'elapsed_s': round(self._now() - self.start_time, 1) if self.start_time else 0.0,
         }
 
+    def _update_map_odom(self):
+        try:
+            tf = self.tf_buffer.lookup_transform('map', 'odom', rclpy.time.Time())
+        except tf2_ros.TransformException:
+            return
+        q = tf.transform.rotation
+        new = (tf.transform.translation.x, tf.transform.translation.y,
+               yaw_from_quaternion(q.x, q.y, q.z, q.w))
+        if new != self.map_odom:
+            self.mission.on_map_shift(map_shift(self.map_odom, new))
+            self.map_odom = new
+
     def _step(self):
         if self.pose is None:
             return
+        self._update_map_odom()
         now = self._now()
         if self.start_time is None:
             self.start_time = self.last_stats_time = now

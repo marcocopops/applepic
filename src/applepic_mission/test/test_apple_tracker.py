@@ -46,3 +46,11 @@ def test_picked_track_is_not_recreated_and_nearest_skips_it():
     assert tr.nearest(0.0, 0.0).x == 2.0
     tr.mark_failed(tr.nearest(0.0, 0.0).id)
     assert tr.nearest(0.0, 0.0) is None
+
+
+def test_tracks_follow_map_shift():
+    tr = AppleTracker()
+    tr.update([(1.0, 0.0)])
+    tr.transform(lambda p: (p[0] + 0.3, p[1] - 0.1))
+    tr.update([(1.29, -0.1)])         # same apple seen after the shift: no duplicate
+    assert len(tr.tracks) == 1 and tr.tracks[0].views == 2
