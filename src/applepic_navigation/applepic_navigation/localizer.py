@@ -2,21 +2,22 @@
 
 mode `gps`:   dead reckoning (wheel speed from /wheel_odom + gyro yaw rate from /imu, frame odom
               at the start pose) fused with GPS fixes (/gps/fix, converted to the world ENU frame
-              with the orchard datum) by `localization.OffsetEkf`. Publishes TF map -> odom and
-              odom -> base_footprint.
+              with the orchard datum) and with the tree trunks seen by the camera (/trees/trunks)
+              by `localization.OffsetEkf`. Publishes TF map -> odom and odom -> base_footprint.
 mode `truth`: republishes the ground-truth /odom (already in the world frame) and a static
               identity map -> odom, so that consumers are the same in both modes.
 
-Subscribes: /wheel_odom + /imu + /gps/fix (gps) or /odom (truth).
+Subscribes: /wheel_odom + /imu + /gps/fix + /trees/trunks (gps) or /odom (truth).
 Publishes:  /localization/odom (nav_msgs/Odometry, frame map, 50 Hz in gps mode),
-            TF map -> odom (+ odom -> base_footprint in gps mode).
+            TF map -> odom (+ odom -> base_footprint in gps mode),
+            /localization/trunk_fix (geometry_msgs/PointStamped, the tree just used, frame map).
 """
 from collections import deque
 import math
 import os
 
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import PointStamped, PoseArray, TransformStamped
 from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
@@ -57,7 +58,9 @@ class Localizer(Node):
         self.odom_frame = gp('odom_frame').value
         self.base_frame = gp('base_frame').value
         self.initial_yaw = float(gp('initial_yaw').value)
-        sc = load_orchard(gp('orchard_config').value)['spherical_coordinates']
+        config = load_orchard(gp('orchard_config').value)
+        self.trees = [tuple(t) for t in config['trees']]
+        sc = config['spherical_coordinates']
         self.datum = (float(sc['latitude_deg']), float(sc['longitude_deg']))
         self.ekf = OffsetEkf(LocalizationParams(
             **{n: type(v)(gp(n).value) for n, v in vars(defaults).items()}))
@@ -78,6 +81,8 @@ class Localizer(Node):
             self.create_subscription(Odometry, '/wheel_odom', self._on_wheel_odom, 20)
             self.create_subscription(Imu, '/imu', self._on_imu, 50)
             self.create_subscription(NavSatFix, '/gps/fix', self._on_fix, 10)
+            self.create_subscription(PoseArray, '/trees/trunks', self._on_trunks, 10)
+            self.trunk_pub = self.create_publisher(PointStamped, '/localization/trunk_fix', 10)
         else:
             raise ValueError(f'unknown localization mode {self.mode!r} (truth or gps)')
         self.get_logger().info(f'localization mode: {self.mode}')
@@ -119,6 +124,22 @@ class Localizer(Node):
                 self.get_logger().warn(
                     f'{self.ekf.p.max_rejections} fixes rejected in a row: estimate reset on the '
                     f'GPS fix ({self.ekf.resets} resets)')
+
+    def _on_trunks(self, msg):
+        """Trunks measured relative to the robot, placed in odom with the pose at the image time."""
+        if not self.history:
+            return
+        ox, oy, yaw = self._odom_at(_stamp(msg))
+        c, s = math.cos(yaw), math.sin(yaw)
+        for p in msg.poses:
+            x, y = p.position.x, p.position.y
+            tree = self.ekf.update_trunk((ox + c * x - s * y, oy + s * x + c * y), self.trees)
+            if tree is not None:
+                fix = PointStamped()
+                fix.header.stamp = msg.header.stamp
+                fix.header.frame_id = self.map_frame
+                fix.point.x, fix.point.y = float(tree[0]), float(tree[1])
+                self.trunk_pub.publish(fix)
 
     def _on_wheel_odom(self, msg):
         self.dead_reckoning.set_speed(msg.twist.twist.linear.x)

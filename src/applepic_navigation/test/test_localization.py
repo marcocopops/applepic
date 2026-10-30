@@ -161,3 +161,21 @@ def test_map_shift_keeps_odom_position():
     expected = compose(new, odom_point)[:2]
     assert math.hypot(after[0] - expected[0], after[1] - expected[1]) < 1e-9
     assert map_shift(old, old)(before) == pytest.approx(before)
+
+
+def test_trunk_fix_corrects_an_overconfident_estimate():
+    """A biased GPS left the filter 1.5 m off and sure of itself: the trunk wins, not the gate."""
+    ekf = OffsetEkf(LocalizationParams(gps_stddev=0.02))
+    ekf.initialize((1.5, 0.0), (0.0, 0.0, 0.0), 0.0)    # true offset: 0
+    trees = [(4.0, 4.0), (10.0, 4.0)]
+    assert ekf.update_trunk((4.0, 4.0), trees) == (4.0, 4.0)
+    assert math.hypot(ekf.x[0], ekf.x[1]) < 0.15
+
+
+def test_trunk_fix_ignored_far_from_any_tree():
+    ekf = OffsetEkf()
+    ekf.initialize((0.0, 0.0), (0.0, 0.0, 0.0), 0.0)
+    before = ekf.x.copy()
+    assert ekf.update_trunk((7.0, 4.0), [(4.0, 4.0), (10.0, 4.0)]) is None
+    assert (ekf.x == before).all()
+    assert OffsetEkf().update_trunk((4.0, 4.0), [(4.0, 4.0)]) is None   # not initialized

@@ -12,6 +12,8 @@ turned) inflates its covariance. Update: a GPS fix measures the antenna position
 h(T) = R(theta) * p_antenna_odom + t. Fixes failing a Mahalanobis gate are rejected.
 The heading offset is initialised from a known start heading (robot docked at the depot) and is
 then observable from the GPS track as the robot drives.
+A tree trunk seen by the camera is a second, much sharper update: its known map position is the
+image by T of its measured odom position (same h, the antenna replaced by the trunk point).
 """
 from dataclasses import dataclass
 import math
@@ -34,6 +36,8 @@ class LocalizationParams:
     reset_yaw_stddev: float = 0.1   # rad, heading uncertainty after a reset
     antenna_x: float = 0.0          # m, GPS antenna ahead of base_footprint
     antenna_y: float = 0.0
+    trunk_stddev: float = 0.05      # m, error of a trunk position measured by the camera
+    trunk_max_distance: float = 2.8  # m, trunk vs nearest tree (trees are farther apart than 2x)
 
 
 def wrap(a):
@@ -141,27 +145,55 @@ class OffsetEkf:
             self.resets += 1
         return False
 
-    def _update(self, gps_xy, odom_pose, gps_stddev):
+    def update_trunk(self, trunk_odom, trees):
+        """Fuse a trunk seen at odom position `trunk_odom`; return the matched tree, or None.
+
+        The trees are far apart compared to the GPS error, so the nearest one is the right one and
+        an unlikely innovation means the estimate is overconfident (a GPS bias is not white noise),
+        not that the measurement is wrong: the covariance is inflated instead of rejecting it.
+        """
+        if not self.initialized or not trees:
+            return None
+        guess = compose(self.x, (trunk_odom[0], trunk_odom[1], 0.0))[:2]
+        tree = min(trees, key=lambda t: math.dist(t, guess))
+        if math.dist(tree, guess) > self.p.trunk_max_distance:
+            return None
+        R = np.eye(2) * self.p.trunk_stddev ** 2
+        H, innov = self._linearize(trunk_odom, tree)
+        if float(innov @ np.linalg.solve(H @ self.P @ H.T + R, innov)) > self.p.gate:
+            self.P[:2, :2] += np.outer(innov, innov)
+        self._fuse(H, innov, R)
+        self.consecutive_rejections = 0
+        return tree
+
+    def _linearize(self, point_odom, z):
+        """Jacobian and innovation of a measurement `z` of the map position of an odom point."""
         tx, ty, th = self.x
-        ax, ay = self._antenna(odom_pose)
+        ax, ay = point_odom
         c, s = math.cos(th), math.sin(th)
         z_hat = np.array([tx + c * ax - s * ay, ty + s * ax + c * ay])
         H = np.array([[1.0, 0.0, -s * ax - c * ay],
                       [0.0, 1.0, c * ax - s * ay]])
+        return H, np.asarray(z, dtype=float) - z_hat
+
+    def _update(self, gps_xy, odom_pose, gps_stddev):
+        H, innov = self._linearize(self._antenna(odom_pose), gps_xy)
         sg = gps_stddev if gps_stddev is not None else self.p.gps_stddev
         R = np.eye(2) * sg ** 2
-        innov = np.asarray(gps_xy, dtype=float) - z_hat
-        S = H @ self.P @ H.T + R
-        if float(innov @ np.linalg.solve(S, innov)) > self.p.gate:
+        if float(innov @ np.linalg.solve(H @ self.P @ H.T + R, innov)) > self.p.gate:
             self.rejected += 1
             return False
+        self._fuse(H, innov, R)
+        self.accepted += 1
+        return True
+
+    def _fuse(self, H, innov, R):
+        S = H @ self.P @ H.T + R
         K = self.P @ H.T @ np.linalg.inv(S)
         self.x = self.x + K @ innov
         self.x[2] = wrap(self.x[2])
         I_KH = np.eye(3) - K @ H
         self.P = I_KH @ self.P @ I_KH.T + K @ R @ K.T   # Joseph form, stays symmetric PSD
-        self.accepted += 1
-        return True
 
     def pose(self, odom_pose):
         """Estimated map pose (x, y, yaw) of the robot at odom pose `odom_pose`."""

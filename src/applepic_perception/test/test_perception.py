@@ -7,6 +7,7 @@ import pytest
 from applepic_perception.detector import HsvParams, annotate, detect_apples, red_mask
 from applepic_perception.projection import (
     pixel_to_ray, project_pixel_to_plane, project_point_to_pixel, quaternion_to_matrix)
+from applepic_perception.trunk import detect_trunks, fit_circle_known_radius
 
 GRASS_BGR = (101, 176, 116)   # sampled from a sim camera frame
 APPLE_BGR = (45, 45, 179)
@@ -166,3 +167,53 @@ def test_synthetic_render_detect_project():
         err = min(math.hypot(ax - fx, ay - fy) for fx, fy in found)
         # Disks are drawn on integer pixels; 1 px ~ 2-3 cm on the ground at 1.7 m.
         assert err < 0.06
+
+
+# --- trunk foot -------------------------------------------------------------
+
+def _render_trunk(R, t, center, radius=0.1, height=1.6):
+    """Synthetic image of a vertical brown cylinder on the grass, as rendered in the sim."""
+    img = _blank()
+    n = 90
+    pts = []
+    for z in np.linspace(0.0, height, 40):
+        for a in np.linspace(0.0, 2.0 * math.pi, n, endpoint=False):
+            p = (center[0] + radius * math.cos(a), center[1] + radius * math.sin(a), z)
+            # Clip what is behind the camera instead of projecting it through the image plane.
+            if (R.T @ (np.array(p) - t))[2] > 0.05:
+                pts.append(project_point_to_pixel(p, K, R, t))
+    pts = np.array(pts)
+    pts = pts[(np.abs(pts[:, 0]) < 3000) & (np.abs(pts[:, 1]) < 3000)]
+    hull = cv2.convexHull(pts.astype(np.float32))
+    cv2.fillConvexPoly(img, hull.astype(np.int32), TRUNK_BGR)
+    return img
+
+
+@pytest.mark.parametrize('center', [(1.5, 0.0), (1.2, 0.4), (1.0, -0.3), (0.9, 0.1)])
+def test_trunk_axis_is_located_on_the_ground(center):
+    R, t = robot_camera_pose()
+    trunks = detect_trunks(_render_trunk(R, t, center), K, R, t)
+    assert len(trunks) == 1
+    assert math.dist(trunks[0], center) < 0.03
+
+
+def test_trunk_rejected_when_out_of_view_cut_or_absent():
+    R, t = robot_camera_pose()
+    assert detect_trunks(_blank(), K, R, t) == []
+    assert detect_trunks(_render_trunk(R, t, (2.2, 0.0)), K, R, t) == []   # foot above the image
+    assert detect_trunks(_render_trunk(R, t, (1.0, 0.75)), K, R, t) == []  # cut by the side
+
+
+def test_trunk_ignores_apples_and_gripper():
+    R, t = robot_camera_pose()
+    img = _blank()
+    cv2.circle(img, (100, 300), 25, APPLE_BGR, -1)
+    cv2.rectangle(img, (220, 430), (420, 480), GRIPPER_BGR, -1)
+    assert detect_trunks(img, K, R, t) == []
+
+
+def test_circle_fit_recovers_center_from_a_short_arc():
+    angles = np.linspace(2.5, 3.8, 20)
+    pts = np.column_stack([3.0 + 0.1 * np.cos(angles), 1.0 + 0.1 * np.sin(angles)])
+    center, residual = fit_circle_known_radius(pts, 0.1, (0.0, 1.0))
+    assert np.allclose(center, (3.0, 1.0), atol=1e-6) and residual < 1e-6
