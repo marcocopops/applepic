@@ -210,9 +210,38 @@
 - Défaut laissé à `localization:=truth` (référence de non-régression) ; le mode GPS RTK donne le même
   résultat.
 
-## Prochaine tâche : M9 — recaler la pose sur les troncs (GPS grand public) ou obstacles
-- Recalage par les troncs : détecter le tronc (marron, vertical) dans l'image quand le robot fait
-  face à l'arbre en SEARCH, en déduire la position du robot relative à l'arbre (position connue) et
-  corriger map → odom (mesure supplémentaire dans `OffsetEkf`). Objectif : `make e2e LOCALIZATION=gps
-  GPS_NOISE=0.5 GPS_BIAS=1.0` ≥ 90 %.
-- Sinon : obstacles / herbe haute, ou pommes partiellement cachées.
+## Session 13 (2026-10-30)
+- M9 recalage sur les troncs fait (D15) : `applepic_perception/trunk.py` (masque marron, arête basse du
+  blob projetée au sol, ajustement d'un cercle de rayon connu), publié par `apple_detector` sur
+  `/trees/trunks` (repère robot) ; `OffsetEkf.update_trunk` (association à l'arbre le plus proche,
+  covariance gonflée plutôt que rejet) ; nœud `localizer` : `/localization/trunk_fix` ; état mission
+  `ANCHOR` (face au tronc, avance lente, regard des deux côtés), actif seulement si GPS grossier
+  (σ ou biais > 0,1 m). Corrigé au passage : une pomme vue une seule fois reçoit une vue dédiée avant de
+  quitter l'arbre (`relook_view`).
+  - Vérifié `make e2e`-équivalent, code final, verger seed 42 :
+    | localisation | pommes | échecs | temps simulé | erreur pos. moy. / max | cap moy. / max |
+    |---|---|---|---|---|---|
+    | vérité terrain | 29/29 PASS | 0 | 721 s | 0 | 0 |
+    | GPS RTK σ 2 cm | 29/29 PASS | 0 | 723 s | 8 mm / 3,5 cm | 0,008 / 0,05 rad |
+    | GPS σ 0,5 + biais 1 m, bruit seed 0 | 28/29 PASS | 3 | 947 s | 0,63 / 2,28 m | 0,12 / 0,50 rad |
+    | idem, bruit seed 1 | 27/29 PASS | 4 | 911 s | 0,71 / 3,13 m | 0,13 / 0,54 rad |
+    | idem, bruit seed 2 | 29/29 PASS | 0 | 864 s | 0,54 / 3,09 m | 0,13 / 0,54 rad |
+    Soit 84/87 (96,6 %) en GPS grossier, objectif ≥ 90 % atteint sur chaque seed (avant : 23/29 sur le seed 0).
+  - Vérifié : `scripts/eval_trunks.py` (mesuré juste avant les derniers changements mission, détecteur
+    inchangé depuis) : erreur des troncs 1,2–1,4 cm en moyenne, max 8,5 cm, 0 > 30 cm sur 1037 mesures.
+  - `scripts/check_demo.sh` PASS en GPS grossier ; `make test` : 121 tests, 0 échec. Aucun processus orphelin.
+- Ne marche pas / limites :
+  - `ANCHOR` échoue encore sur 9 arrivées sur 24 (« no trunk fix ») : mission alors menée avec la pose GPS.
+  - L'erreur max reste ~3 m : hors des arbres, le GPS biaisé retire l'estimation (entre deux recalages).
+  - Sur les 3 pommes perdues : 1 éjectée à 170 m par la physique (`apple_t0_0`), 2 restées en place
+    (`apple_t1_2`, `apple_t4_3`), cause non analysée.
+  - **Divergence non expliquée** : un run intermédiaire (seed 0, avant `relook_view`) a atteint 6,8 m et
+    1,6 rad avec 2 remises à zéro de l'EKF, tout en finissant 29/29. Non reproduite dans la série finale,
+    cause non trouvée (les mesures de troncs ne sont pas en cause d'après `eval_trunks` sur les seeds 1 et 2 ;
+    robot bloqué contre un tronc non vérifié).
+  - Un seul verger testé en GPS grossier ; démo GUI toujours non relancée depuis la session 10.
+  - Résultats sensibles au hasard : le RTK avec `ANCHOR` a donné 27/29 sur un run ; d'où le filtrage.
+
+## Prochaine tâche : M9 — obstacles / herbe haute, ou pommes partiellement cachées
+- Avant cela, à faible coût : relancer la démo GUI (`make demo`) ; surveiller `rejected in a row` dans les
+  logs GPS pour attraper la divergence ci-dessus (enregistrer vérité + estimation au moment du reset).

@@ -216,3 +216,21 @@
 - Limite mesurée : avec un GPS « grand public » (σ 0,5 m + biais 1 m), la recherche autour des arbres
   est décalée de 1 à 2 m → zones marquées « vues » sans l'avoir été, 23/29 (FAIL). Il faudrait du RTK,
   ou recaler la pose sur les troncs vus par la caméra.
+
+## D15 — Recalage de la pose sur les troncs vus par la caméra (session 13)
+- Contexte : GPS « grand public » (σ 0,5 m + biais 1 m) → 23/29, recherche décalée de 1 à 2 m (D14). La
+  caméra regarde le sol : seul le pied du tronc est visible, et il est juste hors champ depuis le cercle
+  de recherche (1,9 m).
+- Décision :
+  - Détection du pied : ajustement d'un cercle de rayon connu sur l'arête basse du blob marron projetée
+    au sol (non biaisé vu de côté, contrairement au centroïde), points de silhouette écartés.
+  - EKF : même modèle de mesure que le GPS, le point mesuré étant le tronc. Association à l'arbre le plus
+    proche (< 2,8 m ; arbres à 6 m). Innovation improbable → covariance gonflée, pas de rejet : un biais GPS
+    rend le filtre trop confiant, et le tronc est la mesure fiable.
+  - Nouvel état `ANCHOR` à l'arrivée à chaque arbre : face au tronc, avance lente (≤ 1,2 m, arrêt à 0,7 m
+    estimé), regard à ± 0,8 rad, puis SEARCH même sans recalage. Actif seulement si σ ou biais > 0,1 m
+    (constaté : avec RTK, 27/29 et 806 s contre 29/29 et 723 s sans).
+- Écarté : réduire le cercle de recherche ou relever la caméra (réglages de couverture et perception à
+  refaire) ; modéliser le biais GPS comme état du filtre (plus complexe, à reconsidérer pour réduire l'erreur
+  entre deux arbres).
+- Résultat : 84/87 pommes sur 3 seeds de bruit (≥ 27/29 chacun), au prix de ~20–30 % de temps en plus.

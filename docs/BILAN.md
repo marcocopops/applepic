@@ -35,6 +35,9 @@
   comme avec la vérité terrain (erreur de pose 8 mm en moyenne) ; GPS 0,3 m + biais 0,3 m → 29/29 ;
   GPS « grand public » 0,5 m + biais 1 m → **23/29, FAIL** (la recherche autour des arbres est décalée
   de 1 à 2 m). Conclusion : il faut du RTK (ou un recalage sur les troncs, prochaine étape).
+- M9 troncs (session 13) : **recalage de la pose sur les troncs vus par la caméra**. GPS grand public
+  0,5 m + biais 1 m : **28, 27 et 29/29** sur 3 seeds de bruit (avant : 23/29), 860–950 s simulées. RTK et vérité
+  terrain : 29/29, ~720 s. Vérifié par `make e2e` en headless, sur un seul verger.
 - M8 : **démo `make demo`** (GUI Gazebo + RViz : verger, trajectoire, détections, texte d'état
   au-dessus du robot, image caméra annotée). Vérifié : lancée sur l'écran de cette machine pendant
   90 s (deux fenêtres ouvertes, 4 pommes ramassées, captures `artifacts/demo_{rviz,gazebo}.png`,
@@ -68,7 +71,7 @@ ros2 topic echo /mission/status   # transitions de la mission (autre terminal)
 make e2e   # test de bout en bout headless chronométré (~5 min) -> PASS/FAIL + métriques
 make e2e E2E_SEED=7   # idem sur un autre verger (autres positions de pommes)
 make e2e LOCALIZATION=gps                              # idem avec GPS RTK simulé + EKF
-make e2e LOCALIZATION=gps GPS_NOISE=0.5 GPS_BIAS=1.0   # GPS grand public (échoue, voir §4)
+make e2e LOCALIZATION=gps GPS_NOISE=0.5 GPS_BIAS=1.0   # GPS grand public, recalage sur les troncs
 make demo LOCALIZATION=gps   # démo avec GPS (non testée avec la GUI, seulement en headless)
 ```
 
@@ -94,14 +97,19 @@ make demo LOCALIZATION=gps   # démo avec GPS (non testée avec la GUI, seulemen
   localisation par **EKF maison** (pas robot_localization), cap par **gyroscope** (les roues glissent
   de 7 % en pivot) ; défaut des launch : `localization:=truth` (le mode GPS est une option).
 - D14 : les pommes repérées sont ancrées au repère odométrique (insensibles aux sauts du GPS).
+- D15 : recalage sur les troncs, nouvel état mission `ANCHOR` (le robot s'approche du tronc à chaque arbre),
+  actif seulement si le GPS est grossier (σ ou biais > 0,1 m).
 - D10 : démo = même mission que M7 + nœud `mission_viz` (marqueurs RViz) ; vitesse réelle par
   défaut (`make demo DEMO_RTF=2` pour accélérer, non testé avec la GUI).
 
 ## 4. Cassé / bloqué
 - Rien de bloquant. Voir `docs/TODO_HUMAIN.md` (optionnel).
 - Démo GUI non relancée depuis les sessions 11–12 (vérifiée seulement en headless, y compris en GPS).
-- GPS non-RTK (biais ~1 m) : 23/29 pommes, la couverture autour des arbres est faussée.
+- GPS grossier : ça passe (84/87), mais l'erreur de pose monte encore à ~3 m entre les arbres, et `ANCHOR`
+  ne trouve pas le tronc à 9 arrivées sur 24.
+- **Non expliqué** : un run intermédiaire a divergé (6,8 m, 1,6 rad, 2 remises à zéro de l'EKF) tout en
+  finissant 29/29 ; non reproduit ensuite, cause non trouvée (voir PROGRESS, session 13).
 
 ## 5. Prochaines étapes
-- Recaler la pose sur les troncs vus par la caméra (pour un GPS non-RTK), obstacles, herbe haute.
+- Relancer la démo GUI, tester le GPS grossier sur d'autres vergers, puis obstacles, herbe haute.
 - Accélérer la mission sans perdre de pommes.
