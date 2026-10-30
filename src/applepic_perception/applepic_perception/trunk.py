@@ -15,7 +15,7 @@ from applepic_perception.projection import project_pixel_to_plane
 
 @dataclass
 class TrunkParams:
-    hue_band: tuple = (12, 25)   # brown; apples are below, grass above
+    hue_band: tuple = (15, 25)   # brown; apples are below, grass above
     sat_band: tuple = (80, 200)
     val_band: tuple = (40, 130)
     open_kernel: int = 5         # px

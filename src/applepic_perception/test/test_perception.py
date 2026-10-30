@@ -7,10 +7,13 @@ import pytest
 from applepic_perception.detector import HsvParams, annotate, detect_apples, red_mask
 from applepic_perception.projection import (
     pixel_to_ray, project_pixel_to_plane, project_point_to_pixel, quaternion_to_matrix)
-from applepic_perception.trunk import detect_trunks, fit_circle_known_radius
+from applepic_perception.trunk import detect_trunks, fit_circle_known_radius, trunk_mask
 
 GRASS_BGR = (101, 176, 116)   # sampled from a sim camera frame
 APPLE_BGR = (45, 45, 179)
+ORANGE_APPLE_BGR = (47, 82, 132)   # rendered (0.85, 0.30, 0.10), sampled from a sim camera frame
+DARK_APPLE_BGR = (30, 30, 90)
+BLADE_BGR = (60, 130, 50)
 TRUNK_BGR = (38, 62, 78)
 GRIPPER_BGR = (194, 194, 194)
 
@@ -51,6 +54,34 @@ def _blank():
 
 
 # --- detector ---------------------------------------------------------------
+
+@pytest.mark.parametrize('color', [APPLE_BGR, ORANGE_APPLE_BGR, DARK_APPLE_BGR])
+def test_detects_apple_color_variants(color):
+    img = _blank()
+    cv2.circle(img, (300, 300), 20, color, -1)
+    found = detect_apples(img)
+    assert len(found) == 1 and abs(found[0].u - 300) < 2 and abs(found[0].v - 300) < 2
+
+
+def test_orange_apple_is_not_a_trunk():
+    img = _blank()
+    cv2.circle(img, (300, 300), 40, ORANGE_APPLE_BGR, -1)
+    assert not trunk_mask(img).any()
+
+
+def test_trunk_color_is_not_an_apple():
+    img = _blank()
+    cv2.rectangle(img, (280, 0), (360, 80), TRUNK_BGR, -1)
+    assert detect_apples(img) == []
+
+
+def test_grass_blades_do_not_split_an_apple():
+    img = _blank()
+    cv2.circle(img, (300, 300), 22, APPLE_BGR, -1)
+    cv2.line(img, (296, 340), (302, 260), BLADE_BGR, 3)
+    found = detect_apples(img)
+    assert len(found) == 1 and abs(found[0].u - 300) < 3 and abs(found[0].v - 300) < 3
+
 
 def test_detects_red_disks_and_ignores_background():
     img = _blank()

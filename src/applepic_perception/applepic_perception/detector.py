@@ -9,14 +9,15 @@ import numpy as np
 @dataclass
 class HsvParams:
     # Red wraps around hue 0 in OpenCV's 0-180 hue scale, hence two hue bands.
-    # Tree trunks (brown) sit around hue 15-20 and must stay outside the low band.
-    hue_bands: tuple = ((0, 10), (170, 180))
+    # Rendered colors: ripe 0, orange (unripe) 12, tree trunks (brown) 18, which must stay outside.
+    hue_bands: tuple = ((0, 14), (170, 180))
     sat_min: int = 100
     val_min: int = 50
     min_area: float = 30.0       # px^2, rejects noise and far-away specks
     max_area: float = 60000.0    # px^2
     min_fill: float = 0.4        # blob area / enclosing circle area
     open_kernel: int = 3         # morphological opening kernel size (px), 0 disables it
+    close_kernel: int = 7        # morphological closing (px): joins an apple cut by a grass blade
     border_margin: int = 1       # blobs touching the image border are cut: centroid unreliable
 
 
@@ -39,6 +40,10 @@ def red_mask(bgr: np.ndarray, params: HsvParams = HsvParams()) -> np.ndarray:
         kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (params.open_kernel, params.open_kernel))
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    if params.close_kernel > 0:
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (params.close_kernel, params.close_kernel))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
     return mask
 
 
