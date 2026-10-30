@@ -111,14 +111,14 @@ class Localizer(Node):
             self.get_logger().info(f'initialized at ({xy[0]:.2f}, {xy[1]:.2f}), '
                                    f'heading {self.initial_yaw:.2f} rad')
         else:
-            reopened = self.ekf.reopened
+            resets = self.ekf.resets
             if not self.ekf.update(xy, pose, stddev):
                 self.get_logger().warn(f'GPS fix rejected (total {self.ekf.rejected})',
                                        throttle_duration_sec=5.0)
-            if self.ekf.reopened != reopened:
+            if self.ekf.resets != resets:
                 self.get_logger().warn(
-                    f'{self.ekf.p.max_rejections} fixes rejected in a row: covariance inflated '
-                    f'(re-opened {self.ekf.reopened} times)')
+                    f'{self.ekf.p.max_rejections} fixes rejected in a row: estimate reset on the '
+                    f'GPS fix ({self.ekf.resets} resets)')
 
     def _on_wheel_odom(self, msg):
         self.dead_reckoning.set_speed(msg.twist.twist.linear.x)

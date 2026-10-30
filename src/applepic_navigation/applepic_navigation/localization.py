@@ -30,9 +30,8 @@ class LocalizationParams:
     yaw_drift_per_rad: float = 0.02   # rad
     yaw_drift_per_s: float = 0.002  # rad over 1 s (gyro bias), so the heading never locks
     gate: float = 16.0              # Mahalanobis^2 threshold (2 dof), larger fixes are rejected
-    max_rejections: int = 20        # consecutive rejected fixes before the filter re-opens
-    reopen_stddev: float = 0.5      # m, translation std added when it re-opens
-    reopen_yaw_stddev: float = 0.1  # rad
+    max_rejections: int = 20        # consecutive rejected fixes before the filter resets
+    reset_yaw_stddev: float = 0.1   # rad, heading uncertainty after a reset
     antenna_x: float = 0.0          # m, GPS antenna ahead of base_footprint
     antenna_y: float = 0.0
 
@@ -75,7 +74,7 @@ class OffsetEkf:
         self.accepted = 0
         self.rejected = 0
         self.consecutive_rejections = 0
-        self.reopened = 0
+        self.resets = 0
 
     @property
     def initialized(self):
@@ -87,17 +86,17 @@ class OffsetEkf:
         return (x + c * self.p.antenna_x - s * self.p.antenna_y,
                 y + s * self.p.antenna_x + c * self.p.antenna_y)
 
-    def initialize(self, gps_xy, odom_pose, map_yaw, gps_stddev=None):
+    def initialize(self, gps_xy, odom_pose, map_yaw, gps_stddev=None, yaw_stddev=None):
         """First fix: theta from the known map heading, translation from the fix."""
         th = wrap(map_yaw - odom_pose[2])
         ax, ay = self._antenna(odom_pose)
         c, s = math.cos(th), math.sin(th)
         self.x = np.array([gps_xy[0] - (c * ax - s * ay), gps_xy[1] - (s * ax + c * ay), th])
         sg = gps_stddev if gps_stddev is not None else self.p.gps_stddev
+        sy = yaw_stddev if yaw_stddev is not None else self.p.initial_yaw_stddev
         # Translation uncertainty: the fix plus the lever effect of the heading uncertainty.
-        lever = math.hypot(ax, ay) * self.p.initial_yaw_stddev
-        self.P = np.diag([sg ** 2 + lever ** 2, sg ** 2 + lever ** 2,
-                          self.p.initial_yaw_stddev ** 2])
+        lever = math.hypot(ax, ay) * sy
+        self.P = np.diag([sg ** 2 + lever ** 2, sg ** 2 + lever ** 2, sy ** 2])
         self.last_odom = odom_pose
 
     def predict(self, odom_pose, t=None):
@@ -127,28 +126,20 @@ class OffsetEkf:
     def update(self, gps_xy, odom_pose, gps_stddev=None):
         """Fuse one GPS fix (map x, y) taken at odom pose `odom_pose`. True if accepted.
 
-        After `max_rejections` consecutive rejections the estimate is assumed lost (e.g. an
-        unmodelled odometry error made the filter over-confident): the covariance is inflated so
-        that the fixes pull it back instead of being rejected forever.
+        After `max_rejections` consecutive rejections the estimate is assumed lost (unmodelled
+        odometry error, e.g. wheels spinning on a stuck robot): the filter restarts from the
+        current fix, keeping its heading with a larger uncertainty.
         """
         if self._update(gps_xy, odom_pose, gps_stddev):
             self.consecutive_rejections = 0
             return True
         self.consecutive_rejections += 1
-        if self.consecutive_rejections < self.p.max_rejections:
-            return False
-        self.reopen(odom_pose)
-        self.consecutive_rejections = 0
-        return self._update(gps_xy, odom_pose, gps_stddev)
-
-    def reopen(self, odom_pose):
-        """Inflate the covariance (robot position and heading uncertain again)."""
-        tx, ty, _ = self.x
-        x, y, _ = compose(self.x, odom_pose)
-        G = np.array([y - ty, -(x - tx), 1.0])   # heading uncertainty about the robot
-        self.P = (self.P + np.diag([self.p.reopen_stddev ** 2] * 2 + [0.0])
-                  + self.p.reopen_yaw_stddev ** 2 * np.outer(G, G))
-        self.reopened += 1
+        if self.consecutive_rejections >= self.p.max_rejections:
+            self.initialize(gps_xy, odom_pose, self.pose(odom_pose)[2], gps_stddev,
+                            max(self.p.reset_yaw_stddev, math.sqrt(self.P[2, 2])))
+            self.consecutive_rejections = 0
+            self.resets += 1
+        return False
 
     def _update(self, gps_xy, odom_pose, gps_stddev):
         tx, ty, th = self.x

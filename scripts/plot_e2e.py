@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Plot an end-to-end mission run: trajectory, trees, depot, apples picked vs left.
 
-Usage: plot_e2e.py trajectory.csv metrics.json out.png [apples_manifest.yaml]
+Usage: plot_e2e.py trajectory.csv metrics.json out.png [apples_manifest.yaml [truth.csv]]
+trajectory.csv is the pose the mission used; truth.csv (t, x, y) the ground truth, if different.
 """
 import csv
 import json
@@ -23,13 +24,24 @@ def main():
         m = json.load(f)
     with open(csv_path) as f:
         rows = list(csv.DictReader(f))
+    truth = []
+    if len(sys.argv) > 5:
+        try:
+            with open(sys.argv[5]) as f:
+                truth = list(csv.DictReader(f))
+        except OSError:
+            pass
     left = set(m.get('apples_left', []))
     apples = world['apples']
 
     fig, ax = plt.subplots(figsize=(9, 7))
     if rows:
         ax.plot([float(r['x']) for r in rows], [float(r['y']) for r in rows],
-                color='#1f5fa8', lw=1.0, label='robot (/odom)')
+                color='#1f5fa8', lw=1.0,
+                label='robot (estimate)' if truth else 'robot (/localization/odom)')
+    if truth:
+        ax.plot([float(r['x']) for r in truth], [float(r['y']) for r in truth],
+                color='#ff7f0e', lw=0.8, alpha=0.8, label='robot (ground truth)')
     ax.scatter(*zip(*world['trees']), color='#2e7d32', s=90, marker='^', label='trees')
     ax.scatter([world['depot'][0]], [world['depot'][1]], color='#555', s=90, marker='s',
                label='depot')

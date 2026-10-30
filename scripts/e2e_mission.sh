@@ -49,11 +49,11 @@ if [ "$RTF" != "1" ]; then
   [ $ok = 1 ] && echo "real-time factor set to $RTF" || echo "WARN: could not set RTF $RTF"
 fi
 python3 scripts/eval_e2e.py --manifest "$MANIFEST" ${SEED:+--seed "$SEED"} \
-  --localization "$LOC" --gps-noise "$GPS_NOISE" --gps-bias "$GPS_BIAS" --min-ratio "$MIN" --sim-limit "$SIM_LIMIT" --timeout "$TIMEOUT"
+  --truth-csv artifacts/e2e_truth.csv --localization "$LOC" --gps-noise "$GPS_NOISE" --gps-bias "$GPS_BIAS" --min-ratio "$MIN" --sim-limit "$SIM_LIMIT" --timeout "$TIMEOUT"
 status=$?
 cleanup  # stop the nodes first so the trajectory CSV is flushed and closed
 python3 scripts/plot_e2e.py "$CSV" artifacts/e2e_metrics.json artifacts/e2e_trajectory.png \
-  "$MANIFEST" || true
+  "$MANIFEST" artifacts/e2e_truth.csv || true
 echo "--- mission transitions ---"
 grep -E "\[mission.*(->|done|unloaded)" "$LOG" | sed 's/^/  /' | tail -60
 exit $status

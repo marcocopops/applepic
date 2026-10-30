@@ -63,6 +63,7 @@ def main():
     ap.add_argument('--localization', default='truth', help='recorded in the metrics')
     ap.add_argument('--gps-noise', type=float, default=None)
     ap.add_argument('--gps-bias', type=float, default=None)
+    ap.add_argument('--truth-csv', default='', help='ground-truth trajectory (t, x, y) at 2 Hz')
     ap.add_argument('--out', default='artifacts/e2e_metrics.json')
     args = ap.parse_args()
     with open(args.manifest) as f:
@@ -90,8 +91,15 @@ def main():
         return (msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9,
                 (p.x, p.y, yaw_from_quaternion(q.x, q.y, q.z, q.w)))
 
-    node.create_subscription(Odometry, '/odom',
-                             lambda m: loc_error.add_truth(*odom_sample(m)), 50)
+    truth_rows = []
+
+    def on_truth(msg):
+        t, pose = odom_sample(msg)
+        loc_error.add_truth(t, pose)
+        if not truth_rows or t - truth_rows[-1][0] >= 0.5:
+            truth_rows.append((t, pose[0], pose[1]))
+
+    node.create_subscription(Odometry, '/odom', on_truth, 50)
     node.create_subscription(Odometry, '/localization/odom',
                              lambda m: loc_error.add_estimate(*odom_sample(m)), 50)
 
@@ -122,6 +130,10 @@ def main():
                          'gps_bias_m': args.gps_bias, **loc_error.summary()}
     with open(args.out, 'w') as f:
         json.dump(m, f, indent=2)
+    if args.truth_csv:
+        with open(args.truth_csv, 'w') as f:
+            f.write('t,x,y\n')
+            f.writelines(f'{t:.2f},{x:.3f},{y:.3f}\n' for t, x, y in truth_rows)
     print(json.dumps(m, indent=2))
     print(f'unloaded {m["apples_unloaded"]}/{m["apples_total"]} = {m["unloaded_ratio"]:.0%} '
           f'(min {args.min_ratio:.0%}), sim {m["sim_time_s"]} s (limit {args.sim_limit:.0f} s), '
