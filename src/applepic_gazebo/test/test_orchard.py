@@ -123,3 +123,9 @@ def test_obstacle_on_an_apple_raises(config):
     bad = dict(config, obstacles=[{'position': [apples[0].x, apples[0].y], 'size': [0.4, 0.4, 0.4]}])
     with pytest.raises(ValueError):
         build_world_sdf(bad, apples)
+
+
+def test_apples_only_collide_with_what_shares_their_mask(config):
+    world = ET.fromstring(build_world_sdf(config))
+    apple = next(m for m in world.find('world').findall('model') if m.get('name').startswith('apple_'))
+    assert apple.find('.//collide_bitmask').text == '0x02'

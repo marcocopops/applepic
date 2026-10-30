@@ -73,3 +73,9 @@ def test_bumper_covers_the_wheels_but_not_their_ground_contact(robot):
     strip = robot.find("link[@name='base_link']/collision[@name='bumper_strip']")
     width = float(strip.find('geometry/box').get('size').split()[1])
     assert width > 0.52 + 0.05
+
+
+def test_wheels_and_caster_drive_over_the_apples(robot):
+    masks = {g.get('reference'): g.find('.//collide_bitmask') for g in robot.findall('gazebo')}
+    for link in ('left_wheel_link', 'right_wheel_link', 'caster_link'):
+        assert masks[link].text == '0x01'

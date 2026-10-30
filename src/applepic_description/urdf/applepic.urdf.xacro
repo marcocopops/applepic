@@ -120,6 +120,7 @@
     <gazebo reference="${side}_wheel_link">
       <mu1>1.0</mu1>
       <mu2>1.0</mu2>
+      <collision><surface><contact><collide_bitmask>0x01</collide_bitmask></contact></surface></collision>
     </gazebo>
   </xacro:macro>
 
@@ -147,6 +148,8 @@
   <gazebo reference="caster_link">
     <mu1>0.0</mu1>
     <mu2>0.0</mu2>
+    <!-- Wheels and caster drive over the apples (mask 0x02): colliding, they launch them tens of metres. -->
+    <collision><surface><contact><collide_bitmask>0x01</collide_bitmask></contact></surface></collision>
   </gazebo>
 
   <!-- Basket on the rear half of the chassis (visual only: apples are counted, not stored) -->

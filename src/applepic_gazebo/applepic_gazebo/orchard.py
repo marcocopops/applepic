@@ -248,7 +248,10 @@ def _apple(apple, acfg):
         </inertial>
         <collision name="collision">
           <geometry><sphere><radius>{r}</radius></sphere></geometry>
-          <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
+          <surface>
+            <friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction>
+            <contact><collide_bitmask>0x02</collide_bitmask></contact>
+          </surface>
         </collision>
         <visual name="visual">
           <geometry><sphere><radius>{r}</radius></sphere></geometry>
