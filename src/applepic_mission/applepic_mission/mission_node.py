@@ -5,7 +5,7 @@ and basket events, publishes its velocity commands and calls /basket/unload at t
 magic pick itself is done by the `gripper` node.
 
 Subscribes: /localization/odom (map frame), /apples/detections (PoseArray, map frame),
-            /basket/full, /basket/picked_point (where the picked apple was, relative to the
+            /localization/trunk_fix, /basket/full, /basket/picked_point (where the picked apple was, relative to the
             robot when the pick was triggered: placed in the map with the pose at that time),
             TF map -> odom (apple tracks follow its changes: anchored to the odometry).
 Publishes:  /cmd_vel, ~/state (std_msgs/String, latched), ~/status (std_msgs/String),
@@ -96,6 +96,8 @@ class MissionNode(Node):
         self.create_subscription(PoseArray, '/apples/detections', self._on_detections, 10)
         self.create_subscription(PointStamped, '/basket/picked_point', self._on_picked_point, 10)
         self.create_subscription(Bool, '/basket/full', self._on_full, latched)
+        self.create_subscription(PointStamped, '/localization/trunk_fix',
+                                 lambda _: self.mission.on_trunk_fix(), 10)
         self.create_timer(0.1, self._step)
 
     @property

@@ -5,7 +5,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -39,6 +39,9 @@ def generate_launch_description():
             'trajectory_csv': LaunchConfiguration('trajectory_csv'),
             'exit_when_done': ParameterValue(LaunchConfiguration('exit_when_done'),
                                              value_type=bool),
+            # Only the GPS mode has an error to correct on the trunks.
+            'anchor': ParameterValue(PythonExpression(
+                ["'", LaunchConfiguration('localization'), "' == 'gps'"]), value_type=bool),
         }],
         output='screen',
     )

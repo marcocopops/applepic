@@ -5,7 +5,7 @@ import pytest
 from applepic_mission.basket import Basket
 from applepic_mission.coverage import CameraParams, camera_footprint, point_in_convex
 from applepic_mission.mission import (
-    DONE, GOTO_BASE, GOTO_TREE, PICK, SEARCH, UNLOAD, Mission, MissionParams)
+    ANCHOR, DONE, GOTO_BASE, GOTO_TREE, PICK, SEARCH, UNLOAD, Mission, MissionParams)
 from applepic_mission.picking import apple_in_reach, gripper_position
 from applepic_navigation.controller import wrap_angle
 
@@ -325,3 +325,40 @@ def test_strict_detector_misses_nothing_on_generated_orchards(seed):
     m, basket, remaining, t, _ = run_world(apples, trees=[tuple(t) for t in cfg['trees']],
                                            max_time=3000.0, footprint=camera_footprint())
     assert m.state == DONE and not remaining, f'{sorted(remaining)} left'
+
+
+def _anchoring_mission(**kw):
+    m = make_mission(anchor=True, **kw)
+    x, y = m.search_point(0, 4)
+    m.step((x, y, 0.0), 0.0)
+    assert m.state == ANCHOR
+    return m, x, y
+
+
+def test_anchor_creeps_to_the_trunk_until_a_fix():
+    m, x, y = _anchoring_mission()
+    v, w = m.step((x, y, 0.8), 0.1)        # not facing the trunk: turn first
+    assert v == 0.0 and w < 0.0
+    v, w = m.step((x, y, 0.0), 0.2)
+    assert v == m.p.anchor_speed and w == 0.0
+    m.on_trunk_fix()
+    m.step((x + 0.3, y, 0.0), 0.3)
+    assert m.state == SEARCH and m.stats.transitions[-1][2] == 'trunk fix'
+
+
+def test_anchor_gives_up_after_the_longest_creep():
+    m, x, y = _anchoring_mission()
+    m.step((x, y, 0.0), 0.1)
+    m.step((x + m.p.anchor_travel + 0.01, y, 0.0), 0.2)
+    assert m.state == SEARCH and m.stats.transitions[-1][2] == 'no trunk fix'
+
+
+def test_anchor_stops_near_the_estimated_trunk_and_on_a_full_basket():
+    m, x, y = _anchoring_mission(anchor_travel=5.0)
+    m.step((x, y, 0.0), 0.1)
+    m.step((TREES[0][0] - m.p.anchor_stop + 0.01, TREES[0][1], 0.0), 0.2)
+    assert m.state == SEARCH
+    m, x, y = _anchoring_mission()
+    m.on_basket_full(True)
+    m.step((x, y, 0.0), 0.1)
+    assert m.state == GOTO_BASE

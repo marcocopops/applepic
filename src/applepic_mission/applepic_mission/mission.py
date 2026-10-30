@@ -2,7 +2,7 @@
 
 States and transitions:
 
-    GOTO_TREE --arrived--> SEARCH --feasible confirmed apple--> PICK --picked/failed--> SEARCH
+    GOTO_TREE --arrived--> [ANCHOR --trunk fix or nothing seen-->] SEARCH --feasible confirmed apple--> PICK --picked/failed--> SEARCH
     SEARCH --all search points looked at--> GOTO_TREE (next tree) or GOTO_BASE (end of loop)
     any working state --basket full--> GOTO_BASE (then back to the same tree)
     GOTO_BASE --arrived--> UNLOAD --unloaded--> GOTO_TREE (resume / new loop) or DONE
@@ -14,6 +14,10 @@ PICK): search points whose view would add less than `min_gain` are skipped, and 
 once `coverage_goal` of its ground has been seen, unless a known apple is still waiting for a
 feasible approach. Apples (fused by an AppleTracker) within `apple_radius` of the trunk are picked
 nearest first, provided the straight approach keeps the base away from the trunk.
+
+ANCHOR (optional, for a coarse GPS): a pose error would shift the search around the tree, so the
+robot first faces the trunk and creeps towards it until the localization reports a trunk fix (the
+trunk foot is just out of the camera view from the search circle).
 
 `step(pose, now)` returns the velocity command for the current state; the caller feeds events
 with `on_detections`, `on_picked`, `on_basket_full` and `on_unloaded`, and calls the unload
@@ -29,6 +33,7 @@ from applepic_navigation.controller import ControllerParams, compute_command, wr
 from applepic_navigation.route import plan_path, segment_clearance
 
 GOTO_TREE = 'GOTO_TREE'
+ANCHOR = 'ANCHOR'
 SEARCH = 'SEARCH'
 PICK = 'PICK'
 GOTO_BASE = 'GOTO_BASE'
@@ -64,6 +69,10 @@ class MissionParams:
     coverage_r_min: float = 0.4     # m, covered annulus around the trunk (apple ring + margin)
     coverage_r_max: float = 1.7     # m
     loops: int = 1                  # 0 = forever
+    anchor: bool = False            # get a trunk fix on arrival at each tree (ANCHOR state)
+    anchor_speed: float = 0.2       # m/s
+    anchor_travel: float = 1.2      # m, longest creep towards the trunk
+    anchor_stop: float = 0.7        # m, estimated distance to the trunk axis where the creep ends
 
 
 @dataclass
@@ -102,6 +111,9 @@ class Mission:
         self.k = 0                  # position in `order`
         self.phase = None           # move | face | look
         self.look_until = None
+        # ANCHOR bookkeeping
+        self.anchor_fixed = False
+        self.anchor_start = None
         # PICK bookkeeping
         self.target = None
         self.target_since = None
@@ -123,6 +135,10 @@ class Mission:
         odometric while a GPS-driven estimate wanders (no ghost duplicate tracks, no misses).
         """
         self.tracker.transform(fn)
+
+    def on_trunk_fix(self):
+        """The localization has just been corrected on a trunk seen by the camera."""
+        self.anchor_fixed = True
 
     def on_picked(self, apple_xy):
         """The gripper picked the apple that was at `apple_xy`: retire the matching track."""
@@ -242,6 +258,11 @@ class Mission:
         self._set_state(GOTO_BASE, ('basket full' if resume else 'end of loop') + note)
         self.path = self._travel_path(self.depot, self.p.travel_clearance)
 
+    def _enter_anchor(self):
+        self.anchor_fixed = False
+        self.anchor_start = None
+        self._set_state(ANCHOR)
+
     def _enter_search(self, resume=False, note=''):
         """Start the search pattern of the current tree, or resume it at the current point."""
         self._clear_target()
@@ -328,10 +349,11 @@ class Mission:
             self.grid(self.tree).mark(self._pose)
         if self.state is None:
             self._enter_goto_tree()
-        if self.basket_full and self.state in (GOTO_TREE, SEARCH, PICK):
+        if self.basket_full and self.state in (GOTO_TREE, ANCHOR, SEARCH, PICK):
             self._enter_goto_base(resume=True)
         handler = {
             GOTO_TREE: self._step_goto_tree,
+            ANCHOR: self._step_anchor,
             SEARCH: self._step_search,
             PICK: self._step_pick,
             GOTO_BASE: self._step_goto_base,
@@ -344,8 +366,29 @@ class Mission:
         v, w, arrived = self._follow_path()
         if not arrived:
             return v, w
-        self._enter_search()
+        if self.p.anchor:
+            self._enter_anchor()
+        else:
+            self._enter_search()
         return 0.0, 0.0
+
+    def _step_anchor(self, now):
+        if self.anchor_fixed:
+            self._enter_search(note='trunk fix')
+            return 0.0, 0.0
+        x, y, yaw = self._pose
+        tx, ty = self.trees[self.tree]
+        if self.anchor_start is None:
+            err = wrap_angle(math.atan2(ty - y, tx - x) - yaw)
+            if abs(err) > self.p.face_tolerance:
+                w = max(-self.p.max_face_rate, min(self.p.max_face_rate, self.p.face_gain * err))
+                return 0.0, w
+            self.anchor_start = (x, y)
+        if (math.dist(self.anchor_start, (x, y)) >= self.p.anchor_travel
+                or math.dist((x, y), (tx, ty)) <= self.p.anchor_stop):
+            self._enter_search(note='no trunk fix')
+            return 0.0, 0.0
+        return self.p.anchor_speed, 0.0
 
     def _step_search(self, now):
         cands = self.candidates()
