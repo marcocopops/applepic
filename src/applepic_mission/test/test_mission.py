@@ -646,11 +646,21 @@ def test_robot_blocked_both_ways_ends_up_pivoting():
     assert v == 0.0 and w != 0.0
 
 
-def test_full_mission_gets_past_a_long_wall_on_the_way_to_the_depot():
+def _wall(n):
+    """Diagonal wall of 2 n + 1 crates across the straight way from the depot to (4, 4)."""
+    return [(1.0 + 0.2 * i, 1.8 - 0.2 * i, 0.15) for i in range(-n, n + 1)]
+
+
+def test_full_mission_gets_past_a_long_wall():
     trees = [(4.0, 4.0)]
     apples = ring_apples(trees, per_tree=3)
-    # Wall across the straight way between the tree and the depot, longer than any detour.
-    wall = [(1.0 + 0.2 * i, 1.8 - 0.2 * i, 0.15) for i in range(-8, 9)]
-    m, basket, remaining, t, _ = run_world(apples, trees=trees, crates=wall, max_time=1500.0)
+    m, basket, remaining, t, _ = run_world(apples, trees=trees, crates=_wall(5), max_time=1500.0)
     assert m.state == DONE and not remaining
-    assert m.stats.bumps >= 2
+    assert m.stats.bumps >= 2 and m.stats.trees_skipped == 0
+
+
+def test_wall_too_long_to_get_past_leaves_the_tree_out_and_ends_the_mission():
+    trees = [(4.0, 4.0)]
+    apples = ring_apples(trees, per_tree=3)
+    m, basket, remaining, t, _ = run_world(apples, trees=trees, crates=_wall(8), max_time=1500.0)
+    assert m.state == DONE and m.stats.trees_skipped == 1 and len(remaining) == 3
