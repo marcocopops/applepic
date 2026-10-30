@@ -253,3 +253,20 @@
   chaque choc, et le robot continue de pousser) ; détection de patinage (les roues glissent sans signal fiable).
 - Limite : le choc n'améliore pas la pose, et la pomme visée est perdue pour la boucle.
 
+## D18 — Obstacles inconnus mémorisés au contact (session 15)
+- Contexte : le pare-chocs (D17) reculait puis repartait sans rien retenir. La caméra regarde le sol et ne détecte pas d'obstacle.
+- Décision : aucune perception nouvelle. Le bord du pare-chocs dans le sens de marche a touché, position latérale inconnue : 3 points sur
+  sa largeur sont mémorisés, ancrés à l'odométrie comme les pommes. Dégagement 0,7 m en trajet (rayon de pivot 0,5 m), 0,55 m en approche de
+  pomme. Choc à moins de 0,5 m d'un tronc connu : c'est ce tronc, rien n'est mémorisé. Choc en pivot : rien non plus (direction inconnue).
+  Pomme ou vue interrompue : un second essai. En transit, à partir du 2ᵉ choc : pas de côté de 1, 2, 3 m, puis de l'autre côté ; au
+  8ᵉ choc, l'arbre est abandonné pour que la mission finisse.
+- Écarté : position du contact donnée par gz (repère monde, il faudrait la vérité terrain) ; un seul point droit devant (19 chocs au
+  1ᵉʳ run) ; pas de côté alterné à chaque choc (allers-retours constatés en simulation unicycle) ; Nav2 + carte de coût (non installé).
+- Limite : l'abandon d'arbre coûte cher en GPS grossier (18/29 sur un seed). À revoir en priorité.
+
+## D19 — Roues et roulette traversent les pommes (session 15)
+- Contexte : pommes éjectées à des dizaines de mètres au contact des roues, depuis la session 11 malgré plusieurs contournements.
+- Décision : `collide_bitmask` 0x01 sur roues et roulette, 0x02 sur les pommes. Le sol garde le masque par défaut, le châssis passe au-dessus (10 cm).
+- Écarté : réglages de contact `max_vel`/`kp` (non essayés, prise en charge incertaine avec le moteur physique par défaut) ; interdire le recul
+  au-dessus d'une pomme connue (ne couvre pas les pommes non vues).
+- Limite : le robot ne pousse ni n'écrase plus aucune pomme : un vrai robot le ferait.

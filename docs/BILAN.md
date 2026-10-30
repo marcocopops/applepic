@@ -41,6 +41,9 @@
 - M9 herbe + pare-chocs (session 14) : **verger difficile** (herbe haute, pommes orange, sombres, tachées) : 29/29 en
   vérité terrain (22/29 avant correction) et 29/29 en GPS grossier. Nouveau **pare-chocs** : le robot ne reste plus coincé
   contre un tronc (un run bloqué à 20/29 l'avait révélé). Monde par défaut : 29/29 en vérité terrain, 27, 27 et 28/29 en GPS grossier.
+- M9 obstacles (session 15) : **caisses et rondins inconnus, mémorisés au choc puis contournés**. Pose exacte : 29/29 (869 s, 18 chocs).
+  GPS grossier : **26, 27 et 18/29, ce dernier FAIL**. Vérifié par `scripts/e2e_mission.sh` (limite 1500 s), un seul verger. Les pommes ne sont
+  plus éjectées (0 sur 14 runs) : les roues les traversent. Verger par défaut : 29/29 en vérité terrain et sur le seed GPS 2 relancé.
 - M8 : **démo `make demo`** (GUI Gazebo + RViz : verger, trajectoire, détections, texte d'état
   au-dessus du robot, image caméra annotée). Vérifié : lancée sur l'écran de cette machine pendant
   90 s (deux fenêtres ouvertes, 4 pommes ramassées, captures `artifacts/demo_{rviz,gazebo}.png`,
@@ -76,6 +79,7 @@ make e2e E2E_SEED=7   # idem sur un autre verger (autres positions de pommes)
 make e2e LOCALIZATION=gps                              # idem avec GPS RTK simulé + EKF
 make e2e LOCALIZATION=gps GPS_NOISE=0.5 GPS_BIAS=1.0   # GPS grand public, recalage sur les troncs
 make e2e ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_hard.yaml   # verger difficile
+make e2e ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_obstacles.yaml   # verger avec obstacles inconnus
 make demo LOCALIZATION=gps   # démo avec GPS (non testée avec la GUI, seulement en headless)
 ```
 
@@ -105,18 +109,22 @@ make demo LOCALIZATION=gps   # démo avec GPS (non testée avec la GUI, seulemen
   actif seulement si le GPS est grossier (σ ou biais > 0,1 m).
 - D16 : verger difficile séparé (même positions), herbe visuelle seulement, bande de couleur des pommes élargie.
 - D17 : pare-chocs à contact ; après un choc, le robot recule et **abandonne la pomme visée** (elle reste au sol).
+- D18 : obstacles mémorisés au choc (3 points du pare-chocs), pas de côté si chocs répétés, **arbre abandonné après 8 chocs en route**.
+- D19 : **roues et roulette traversent les pommes** (masque de collision) : plus d'éjection, mais plus réaliste du tout sur ce point.
 - D10 : démo = même mission que M7 + nœud `mission_viz` (marqueurs RViz) ; vitesse réelle par
   défaut (`make demo DEMO_RTF=2` pour accélérer, non testé avec la GUI).
 
 ## 4. Cassé / bloqué
 - Rien de bloquant. Voir `docs/TODO_HUMAIN.md` (optionnel).
+- **Obstacles + GPS grossier pas fiable : 71/87 (82 %), 1 FAIL sur 3** : 15 chocs autour d'une caisse font abandonner 2 arbres (11 pommes).
+  Cause exacte non établie. Démo GUI non relancée depuis ces changements (seulement `check_demo.sh` en headless).
 - **Démo GUI : 1 lancement sur 9 est resté muet** (aucune transition de mission pendant 90 s), cause inconnue, non
   reproduit. Si le robot ne bouge pas au bout de 30 s : Ctrl+C et relancer.
-- GPS grossier : pas de gain par rapport à la session 13 (82/87 contre 84/87), erreur de pose jusqu'à ~3 m entre les arbres ;
-  une pomme a encore été éjectée par la physique.
+- GPS grossier, verger par défaut : erreur de pose jusqu'à ~3 m entre les arbres ; quelques pommes encore manquées (27/29 sur un seed).
 - Monde difficile avec le pare-chocs : vérifié sur un seul verger (les seeds 7 et 123 l'ont été juste avant cet ajout).
 - La divergence de la session 13 vient peut-être du blocage contre un tronc, sans preuve.
 
 ## 5. Prochaines étapes
-- Obstacles inconnus détectés au pare-chocs, GPS grossier sur d'autres vergers, distracteurs rouges.
+- Ne plus perdre d'arbres sur obstacle en GPS grossier (tâche précise dans `docs/PROGRESS.md`), puis GPS grossier sur d'autres vergers,
+  distracteurs rouges.
 - Accélérer la mission sans perdre de pommes.

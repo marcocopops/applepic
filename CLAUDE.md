@@ -12,6 +12,7 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
   `/joint_states`, `/camera/image_raw`, `/camera/camera_info`, `/clock`, `/imu`, `/gps/raw` (fix parfait),
   `/gps/fix` (bruité, mode gps).
 - Pare-chocs : `/bumper` (contacts gz châssis + bande ; le `<topic>` va DANS `<contact>`, le plugin Contact dans le monde).
+- Collisions : `collide_bitmask` 0x01 roues/roulette, 0x02 pommes (le robot roule dessus sans les déplacer).
 - Troncs : `/trees/trunks` (repère robot, `apple_detector`), `/localization/trunk_fix` (`localizer`).
 - Pose pour tous les nœuds : `/localization/odom` (repère `map`) + TF `map → odom → base_footprint`,
   publiés par `localizer` (`localization:=truth` : vérité + identité ; `gps` : EKF GPS + roues + gyro).
@@ -39,6 +40,8 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
   `localization:=gps gps_noise:=… gps_bias:=… gps_bias_tau:=… gps_seed:=…` sur tous les launch ;
   `artifacts/e2e_metrics.json` → clé `localization` (erreur vs vérité), tracé vérité en orange.
 - Verger difficile (herbe, pommes orange/sombres/tachées) : `make e2e ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_hard.yaml`.
+- Verger avec obstacles inconnus : `make e2e ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_obstacles.yaml`.
+  Lancer une série en arrière-plan sans `setsid` (il rend la main tout de suite : fausse notification de fin).
 - `scripts/eval_trunks.py [--output f]` à côté d'une simu : erreur de `/trees/trunks` contre la vérité (arrêt : SIGTERM).
   Lancer une série e2e en arrière-plan : éviter `wait` sans garde-fou sur un script auxiliaire (une boucle a déjà bloqué).
 - `make demo [DEMO_RTF=2]` / `ros2 launch applepic_bringup demo.launch.py [rtf:=2 rviz:=false headless:=true]` :

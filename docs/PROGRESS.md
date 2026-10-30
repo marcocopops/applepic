@@ -276,6 +276,40 @@
     d'erreur avant correctif) : plausible, non démontré, le run d'origine n'existe plus.
   - La couleur reste le seul critère : pas de distracteur rouge (feuilles, fruits d'une autre espèce) testé.
 
-## Prochaine tâche : M9 — obstacles inconnus (caisse, tuyau) détectés au pare-chocs
-- Le pare-chocs filtre déjà tout sauf sol et pommes. Il reste à ajouter des obstacles au générateur, mémoriser le point de
-  contact et replanifier autour. Ensuite, utiliser un contact avec un tronc comme mesure de localisation.
+## Session 15 (2026-10-30)
+- M9 obstacles inconnus fait, **fiable seulement avec une pose précise** (D18) : `config/orchard_obstacles.yaml` (mêmes pommes que le
+  verger par défaut, 3 caisses + 2 rondins statiques, génération refusée si un obstacle recouvre une pomme, un tronc ou le dépôt).
+  Mission : un choc loin des troncs mémorise 3 points du bord de pare-chocs (ancrés à l'odométrie) ; trajets replanifiés autour,
+  vues trop proches supprimées, pomme ou vue interrompue retentée une fois. Chocs répétés en transit : pas de côté croissant,
+  puis arbre abandonné après 8 chocs (`trees_skipped`). Bloqué devant et derrière : pivot (la boucle d'avant était sans fin).
+- Éjection des pommes corrigée à la source (D19) : roues et roulette ne collisionnent plus avec les pommes (`collide_bitmask`).
+  Vérifié par comparaison : roue roulant sur `apple_t0_1` → poussée de 2,08 m sans masque, 0 mm avec.
+- `eval_e2e.py` : requête `gz model --list` réessayée (elle a échoué une fois et donné un FAIL à tort sur un run à 29/29).
+- Vérifié, code final, `scripts/e2e_mission.sh` avec limite portée à 1500 s (verger seed 42, seuil 80 %) :
+  | monde | localisation | résultat | échecs | temps simulé | chocs | arbres abandonnés |
+  |---|---|---|---|---|---|---|
+  | obstacles | vérité | 29/29 PASS | 0 | 869 s | 18 | 0 |
+  | obstacles | GPS σ 0,5 + biais 1, bruit seed 0 | 26/29 PASS | 0 | 1231 s | 32 | 0 |
+  | obstacles | idem, bruit seed 1 | 27/29 PASS | 3 | 1151 s | 17 | 0 |
+  | obstacles | idem, bruit seed 2 | **18/29 FAIL** | 0 | 666 s | 19 | **2** |
+  | défaut | vérité | 29/29 PASS | 0 | 722 s | 0 | 0 |
+  | défaut | GPS σ 0,5 + biais 1, bruit seed 2 | 29/29 PASS | 3 | 930 s | 0 | 0 |
+  - Série précédente, avant le pas de côté (code mission différent, mêmes réglages de collision), non-régression sur ce qui n'a
+    pas été relancé : défaut GPS seeds 0 et 1 : 29/29 et 27/29 ; difficile vérité : 29/29. **Aucune pomme éjectée sur les 14 runs.**
+  - `make test` : 158 tests, 0 échec. `scripts/check_demo.sh` PASS. Aucun processus orphelin.
+- Ne marche pas / limites :
+  - **Obstacles + GPS grossier : 71/87 (82 %), 1 FAIL sur 3.** Dans le FAIL, 15 chocs autour de la caisse (13 ; 10) épuisent deux fois le
+    compteur : arbres 4 et 5 abandonnés, 11 pommes perdues. Les points mémorisés sont autour de (14 ; 10), soit ~1 m d'écart : erreur
+    de pose probable, cause exacte non établie (journal : `artifacts/obst/obst_gps2.log`, non commité).
+  - Le pas de côté n'a pas d'avantage démontré en GPS grossier : 26/27/18 contre 28/26 avant lui (seeds 0/1, boucle de 40 chocs alors).
+  - Vérité terrain : 18 chocs contre 8 avant le pas de côté, 869 s contre 810 s (un seul run de chaque).
+  - Un mur de ~5 m n'est pas franchi (test unitaire) : arbre abandonné. Obstacles gris : aucune caisse couleur bois testée (risque de
+    faux tronc). Obstacle de moins de 10 cm de haut non détecté. Le robot ne pousse plus les pommes : moins réaliste, voulu.
+  - Démo GUI non relancée. `orchard_obstacles.yaml` testé sur un seul verger.
+  - `c5c0951` a été commité avec un test en échec, corrigé par le commit suivant `7b733e4`.
+
+## Prochaine tâche : M9 — ne plus perdre d'arbres sur obstacle en GPS grossier
+- Rejouer `LOCALIZATION=gps GPS_NOISE=0.5 GPS_BIAS=1.0 GPS_SEED=2 ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_obstacles.yaml
+  scripts/e2e_mission.sh 0.8 1500` et comprendre les chocs autour de (13 ; 10). Pistes : ne pas abandonner un arbre (le remettre en fin de
+  boucle), compter les chocs par obstacle, ne pas compter ceux de l'arbre précédent. Objectif : ≥ 90 % sur 3 seeds de bruit.
+- Ensuite : contact avec un tronc comme mesure de localisation ; caisse couleur bois.
