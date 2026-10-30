@@ -262,7 +262,7 @@
   8ᵉ choc, l'arbre est abandonné pour que la mission finisse.
 - Écarté : position du contact donnée par gz (repère monde, il faudrait la vérité terrain) ; un seul point droit devant (19 chocs au
   1ᵉʳ run) ; pas de côté alterné à chaque choc (allers-retours constatés en simulation unicycle) ; Nav2 + carte de coût (non installé).
-- Limite : l'abandon d'arbre coûte cher en GPS grossier (18/29 sur un seed). À revoir en priorité.
+- Limite : l'abandon d'arbre coûte cher en GPS grossier (18/29 sur un seed). Revu en D20 (pas de côté supprimé, arbre reporté).
 
 ## D19 — Roues et roulette traversent les pommes (session 15)
 - Contexte : pommes éjectées à des dizaines de mètres au contact des roues, depuis la session 11 malgré plusieurs contournements.
@@ -270,3 +270,9 @@
 - Écarté : réglages de contact `max_vel`/`kp` (non essayés, prise en charge incertaine avec le moteur physique par défaut) ; interdire le recul
   au-dessus d'une pomme connue (ne couvre pas les pommes non vues).
 - Limite : le robot ne pousse ni n'écrase plus aucune pomme : un vrai robot le ferait.
+
+## D20 — Recherche sur grille autour des points de choc, arbre reporté (session 16)
+- Contexte : rafales de chocs au même endroit, qui épuisaient le compteur et faisaient perdre des arbres. Cause : le contournement d'un tronc ramenait le trajet à travers l'obstacle touché.
+- Décision : A* 8-connexe sur grille de 20 cm, seulement si le contournement existant passe à moins de 0,7 m d'un point mémorisé. Dégagements réduits à 0,7 m (tronc) et 0,55 m (contact) si aucun chemin, ancien trajet en dernier recours. Une zone contenant le départ ou l'arrivée est réduite à cette distance. Pas de côté supprimé : chaque choc ajoute des points, donc le trajet suivant change. Arbre non atteint après 8 chocs : reporté en fin de boucle, abandonné au 2ᵉ échec.
+- Écarté : A* pour tous les trajets (changerait les trajets du verger sans obstacle, sans gain) ; compter les chocs par obstacle (traite le symptôme) ; Nav2 + carte de coût (non installé) ; pare-chocs segmenté (les contacts relevés sont déjà sur le bord avant mémorisé).
+- Limite : le report n'a pas encore servi dans un run gz, seulement en test unitaire.

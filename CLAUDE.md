@@ -44,6 +44,7 @@ panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire in
   Lancer une série en arrière-plan sans `setsid` (il rend la main tout de suite : fausse notification de fin).
 - `scripts/eval_trunks.py [--output f]` à côté d'une simu : erreur de `/trees/trunks` contre la vérité (arrêt : SIGTERM).
   Lancer une série e2e en arrière-plan : éviter `wait` sans garde-fou sur un script auxiliaire (une boucle a déjà bloqué).
+- `scripts/log_bumps.py [--output f]` à côté d'une simu : ce que touche le pare-chocs, où autour du châssis (vérité, diagnostic).
 - `make demo [DEMO_RTF=2]` / `ros2 launch applepic_bringup demo.launch.py [rtf:=2 rviz:=false headless:=true]` :
   démo M8 (GUI Gazebo + RViz, nœud `mission_viz` : `/mission_viz/markers|path`)
 - `scripts/check_demo.sh [timeout rtf]` : démo headless sans RViz, valide marqueurs/HUD/trajectoire

@@ -308,8 +308,33 @@
   - Démo GUI non relancée. `orchard_obstacles.yaml` testé sur un seul verger.
   - `c5c0951` a été commité avec un test en échec, corrigé par le commit suivant `7b733e4`.
 
-## Prochaine tâche : M9 — ne plus perdre d'arbres sur obstacle en GPS grossier
-- Rejouer `LOCALIZATION=gps GPS_NOISE=0.5 GPS_BIAS=1.0 GPS_SEED=2 ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_obstacles.yaml
-  scripts/e2e_mission.sh 0.8 1500` et comprendre les chocs autour de (13 ; 10). Pistes : ne pas abandonner un arbre (le remettre en fin de
-  boucle), compter les chocs par obstacle, ne pas compter ceux de l'arbre précédent. Objectif : ≥ 90 % sur 3 seeds de bruit.
-- Ensuite : contact avec un tronc comme mesure de localisation ; caisse couleur bois.
+## Session 16 (2026-10-30)
+- M9 obstacles + GPS grossier corrigé (D20). Cause des rafales de chocs établie : à moins de 1,9 m d'un tronc, le contournement glouton de
+  `plan_path` rejetait le point de passage hors du rayon du tronc, droit à travers l'obstacle touché, et recommençait à chaque essai
+  (reproduit hors simu : depuis (10,4 ; 11,5), 1ᵉʳ point (9,4 ; 12,6), derrière le rondin). Vu sur un replay du seed 2 : 5 chocs au même coin en 13 s.
+- `route.py` : recherche A* sur grille de 20 cm quand le contournement passe trop près d'un point mémorisé (dégagements abaissés à 0,7 m tronc /
+  0,55 m contact s'il n'y a pas d'autre chemin). Sans point de choc, trajets inchangés. Pas de côté supprimé. Arbre non atteint après 8 chocs :
+  reporté en fin de boucle, abandonné seulement au 2ᵉ échec. `scripts/log_bumps.py` : ce que touche le pare-chocs (vérité, diagnostic).
+- Monde de test : collision châssis/caisse exacte (l'échantillonnage coinçait le robot sur un coin de caisse, artefact du test).
+- Vérifié, code final, `scripts/e2e_mission.sh 0.8 1500` (verger seed 42, sorties `artifacts/s16/`, non commitées) :
+  | monde | localisation | résultat | échecs | temps simulé | chocs | arbres abandonnés | avant (session 15) |
+  |---|---|---|---|---|---|---|---|
+  | obstacles | GPS σ 0,5 + biais 1, bruit seed 0 | 27/29 PASS | 3 | 980 s | 9 | 0 | 26/29, 1231 s, 32 chocs |
+  | obstacles | idem, seed 1 | 27/29 PASS | 2 | 969 s | 9 | 0 | 27/29, 1151 s, 17 chocs |
+  | obstacles | idem, seed 2 | 29/29 PASS | 1 | 1088 s | 13 | 0 | 18/29 FAIL, 666 s, 19 chocs |
+  | obstacles | vérité | 29/29 PASS | 0 | 780 s | 6 | 0 | 29/29, 869 s, 18 chocs |
+  | défaut | GPS, seed 2 | 29/29 PASS | 0 | 790 s | 0 | 0 | 29/29, 930 s |
+  | défaut | vérité | 29/29 PASS | 0 | 720 s | 0 | 0 | 29/29, 722 s |
+  | difficile | vérité | 29/29 PASS | 0 | 738 s | 0 | 0 | 29/29 |
+  Obstacles + GPS grossier : **83/87 (95 %)** contre 71/87, objectif ≥ 90 % atteint. `make test` : 163 tests, 0 échec. `scripts/check_demo.sh` PASS. Aucun processus orphelin.
+- Ne marche pas / limites :
+  - Un seul run par seed et runs non déterministes : avant le correctif, le seed 2 a aussi donné 28/29 PASS sur un replay, donc 18 → 29 ne mesure pas à lui seul le gain.
+    La baisse des chocs va dans le même sens sur les 4 runs obstacles.
+  - Le report d'arbre n'a jamais servi dans ces runs : vérifié seulement par tests unitaires. Mur fermé idem.
+  - 4 pommes perdues en GPS grossier (t4_1, t5_2, t0_3, t2_3), cause non analysée. 5 échecs de ramassage sur ces 3 runs.
+  - Démo GUI toujours non relancée depuis la session 14. Non testé : GPS grossier sur d'autres vergers, caisse couleur bois, distracteurs rouges.
+
+## Prochaine tâche : M9 — GPS grossier sur d'autres vergers
+- `LOCALIZATION=gps GPS_NOISE=0.5 GPS_BIAS=1.0 scripts/e2e_mission.sh 0.8 1500 3 10 1800 <seed>` avec seeds de verger 7 et 123, monde par défaut puis
+  `ORCHARD_CONFIG=…/orchard_obstacles.yaml`, et analyser les pommes perdues (`grep -E "gave up|left tree" artifacts/e2e.log`).
+- Ensuite : caisse couleur bois (risque de faux tronc), distracteurs rouges, relancer la démo GUI.

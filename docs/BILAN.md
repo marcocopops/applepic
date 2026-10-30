@@ -44,6 +44,8 @@
 - M9 obstacles (session 15) : **caisses et rondins inconnus, mémorisés au choc puis contournés**. Pose exacte : 29/29 (869 s, 18 chocs).
   GPS grossier : **26, 27 et 18/29, ce dernier FAIL**. Vérifié par `scripts/e2e_mission.sh` (limite 1500 s), un seul verger. Les pommes ne sont
   plus éjectées (0 sur 14 runs) : les roues les traversent. Verger par défaut : 29/29 en vérité terrain et sur le seed GPS 2 relancé.
+- M9 obstacles, suite (session 16) : **cause des chocs à répétition trouvée et corrigée** (le contournement d'un tronc ramenait le robot dans l'obstacle). GPS grossier + obstacles :
+  **27, 27 et 29/29, tous PASS** (83/87, contre 71/87), 9 à 13 chocs, aucun arbre abandonné. Pose exacte : 29/29 en 780 s, 6 chocs. Vérifié par `scripts/e2e_mission.sh`, un run par seed, un seul verger. Verger par défaut et difficile : 29/29 en vérité terrain.
 - M8 : **démo `make demo`** (GUI Gazebo + RViz : verger, trajectoire, détections, texte d'état
   au-dessus du robot, image caméra annotée). Vérifié : lancée sur l'écran de cette machine pendant
   90 s (deux fenêtres ouvertes, 4 pommes ramassées, captures `artifacts/demo_{rviz,gazebo}.png`,
@@ -109,15 +111,15 @@ make demo LOCALIZATION=gps   # démo avec GPS (non testée avec la GUI, seulemen
   actif seulement si le GPS est grossier (σ ou biais > 0,1 m).
 - D16 : verger difficile séparé (même positions), herbe visuelle seulement, bande de couleur des pommes élargie.
 - D17 : pare-chocs à contact ; après un choc, le robot recule et **abandonne la pomme visée** (elle reste au sol).
-- D18 : obstacles mémorisés au choc (3 points du pare-chocs), pas de côté si chocs répétés, **arbre abandonné après 8 chocs en route**.
+- D18 : obstacles mémorisés au choc (3 points du pare-chocs).
+- D20 : trajets recalculés par **recherche sur grille** autour des chocs, **arbre reporté en fin de boucle après 8 chocs**, abandonné au 2ᵉ échec (report testé seulement en unitaire).
 - D19 : **roues et roulette traversent les pommes** (masque de collision) : plus d'éjection, mais plus réaliste du tout sur ce point.
 - D10 : démo = même mission que M7 + nœud `mission_viz` (marqueurs RViz) ; vitesse réelle par
   défaut (`make demo DEMO_RTF=2` pour accélérer, non testé avec la GUI).
 
 ## 4. Cassé / bloqué
 - Rien de bloquant. Voir `docs/TODO_HUMAIN.md` (optionnel).
-- **Obstacles + GPS grossier pas fiable : 71/87 (82 %), 1 FAIL sur 3** : 14 chocs autour d'une caisse font abandonner 2 arbres (11 pommes).
-  Cause exacte non établie. Démo GUI non relancée depuis ces changements (seulement `check_demo.sh` en headless).
+- Obstacles + GPS grossier : 4 pommes perdues sur 87, cause non analysée ; runs non déterministes, un seul par seed. **Démo GUI non relancée depuis la session 14** (seulement `check_demo.sh` en headless).
 - **Démo GUI : 1 lancement sur 9 est resté muet** (aucune transition de mission pendant 90 s), cause inconnue, non
   reproduit. Si le robot ne bouge pas au bout de 30 s : Ctrl+C et relancer.
 - GPS grossier, verger par défaut : erreur de pose jusqu'à ~3 m entre les arbres ; quelques pommes encore manquées (27/29 sur un seed).
@@ -125,6 +127,5 @@ make demo LOCALIZATION=gps   # démo avec GPS (non testée avec la GUI, seulemen
 - La divergence de la session 13 vient peut-être du blocage contre un tronc, sans preuve.
 
 ## 5. Prochaines étapes
-- Ne plus perdre d'arbres sur obstacle en GPS grossier (tâche précise dans `docs/PROGRESS.md`), puis GPS grossier sur d'autres vergers,
-  distracteurs rouges.
+- GPS grossier sur d'autres vergers (tâche précise dans `docs/PROGRESS.md`), puis caisse couleur bois, distracteurs rouges.
 - Accélérer la mission sans perdre de pommes.
