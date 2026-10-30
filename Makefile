@@ -10,6 +10,8 @@ E2E_MIN_RATIO ?= 0.8
 E2E_SIM_LIMIT ?= 1200
 E2E_RTF ?= 3
 E2E_SEED ?=
+# Optional world config for e2e, e.g. src/applepic_gazebo/config/orchard_hard.yaml.
+ORCHARD_CONFIG ?=
 # Localization for e2e/demo: truth (ground-truth pose) or gps (GPS + wheel odometry EKF).
 LOCALIZATION ?= truth
 GPS_NOISE ?= 0.02
@@ -35,7 +37,7 @@ test: build
 # M7 end-to-end scenario (~5 min wall at RTF 3): metrics in artifacts/e2e_metrics.json.
 # E2E_SEED=<n> regenerates the apples with that seed (world in artifacts/, not committed).
 e2e: build
-	$(RUN) 'LOCALIZATION=$(LOCALIZATION) GPS_NOISE=$(GPS_NOISE) GPS_BIAS=$(GPS_BIAS) scripts/e2e_mission.sh $(E2E_MIN_RATIO) $(E2E_SIM_LIMIT) $(E2E_RTF) 10 1800 $(E2E_SEED)'
+	$(RUN) 'ORCHARD_CONFIG=$(ORCHARD_CONFIG) LOCALIZATION=$(LOCALIZATION) GPS_NOISE=$(GPS_NOISE) GPS_BIAS=$(GPS_BIAS) scripts/e2e_mission.sh $(E2E_MIN_RATIO) $(E2E_SIM_LIMIT) $(E2E_RTF) 10 1800 $(E2E_SEED)'
 
 # M8 demo: full mission with the Gazebo GUI + RViz (needs a display, native only).
 demo: build

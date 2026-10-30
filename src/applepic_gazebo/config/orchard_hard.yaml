@@ -1,0 +1,54 @@
+# Harder orchard: same layout and apple positions as orchard.yaml, with tall grass and
+# damaged or unripe apples (M9). Positions in world frame, metres.
+# Trees are visited in list order; the loop closes back on the first tree.
+world_name: orchard
+seed: 42
+
+ground:
+  center: [8.0, 6.0]
+  size: [40.0, 30.0]
+
+depot:
+  position: [0.0, 0.0]
+  size: [1.5, 1.5]
+
+# Map origin for the (later) simulated GPS: somewhere in Normandy.
+spherical_coordinates:
+  latitude_deg: 49.18
+  longitude_deg: -0.37
+  elevation: 50.0
+
+tree:
+  trunk_radius: 0.10
+  trunk_height: 1.6
+  canopy_radius: 1.1
+
+apples:
+  per_tree: [4, 7]          # inclusive range, drawn per tree
+  ring: [0.45, 1.6]         # min/max distance from the trunk axis
+  min_spacing: 0.15         # min distance between two apples
+  radius: 0.04
+  mass: 0.15
+  variants:                 # colors are RGB; weight = relative frequency
+    ripe: {weight: 4, color: [0.85, 0.05, 0.05]}
+    dark: {weight: 2, color: [0.40, 0.04, 0.05]}
+    orange: {weight: 2, color: [0.85, 0.30, 0.10]}
+    bruised: {weight: 2, color: [0.85, 0.05, 0.05], bruise_color: [0.30, 0.20, 0.10]}
+
+grass:                      # visual only: the robot drives through it
+  hidden_ratio: 0.4         # fraction of the apples with a tuft planted beside them
+  hidden_offset: 0.07       # m, tuft center to apple center
+  tufts_per_tree: 6         # additional tufts scattered in the apple ring
+  blades_per_tuft: 14
+  tuft_radius: 0.06
+  height: [0.10, 0.22]
+  blade_width: 0.012
+  trunk_clearance: 0.3
+
+trees:
+  - [4.0, 4.0]
+  - [10.0, 4.0]
+  - [16.0, 4.0]
+  - [16.0, 10.0]
+  - [10.0, 10.0]
+  - [4.0, 10.0]

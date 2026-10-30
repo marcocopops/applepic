@@ -6,7 +6,7 @@ Also produces a ground-truth apple manifest used later for evaluation.
 """
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from xml.sax.saxutils import escape
 
 import yaml
@@ -18,6 +18,11 @@ class Apple:
     tree_index: int
     x: float
     y: float
+    variant: str = 'ripe'   # key of apples.variants in the config
+    hidden: bool = False    # a grass tuft was planted right next to it
+
+
+DEFAULT_VARIANT = {'color': [0.85, 0.05, 0.05]}
 
 
 def load_config(path):
@@ -49,7 +54,60 @@ def generate_apples(config):
                 placed.append((x, y))
         for k, (x, y) in enumerate(placed):
             apples.append(Apple(f'apple_t{ti}_{k}', ti, round(x, 4), round(y, 4)))
-    return apples
+    return _dress_apples(config, apples)
+
+
+def _dress_apples(config, apples):
+    """Draw the look of each apple. Own generator: positions do not depend on these options."""
+    variants = config['apples'].get('variants')
+    hidden_ratio = config.get('grass', {}).get('hidden_ratio', 0.0)
+    if not variants and not hidden_ratio:
+        return apples
+    rng = random.Random(f'{config["seed"]}-look')
+    names = list(variants or ['ripe'])
+    weights = [variants[n].get('weight', 1.0) for n in names] if variants else [1.0]
+    return [replace(a, variant=rng.choices(names, weights)[0],
+                    hidden=rng.random() < hidden_ratio) for a in apples]
+
+
+def generate_grass(config, apples):
+    """Return [(tree_index, [(x, y, height, yaw, tilt), ...]), ...]: blades in world frame.
+
+    Tufts next to the `hidden` apples, plus `tufts_per_tree` scattered in the apple ring. Each
+    tuft is kept clear of the trunk foot, which the localization needs to see.
+    """
+    gcfg = config.get('grass')
+    if not gcfg:
+        return []
+    rng = random.Random(f'{config["seed"]}-grass')
+    r_min, r_max = config['apples']['ring']
+    trunk_clearance = gcfg.get('trunk_clearance', 0.3)
+    h_min, h_max = gcfg['height']
+    out = []
+    for ti, (tx, ty) in enumerate(config['trees']):
+        centers = []
+        for a in apples:
+            if a.tree_index == ti and a.hidden:
+                angle = rng.uniform(0.0, 2.0 * math.pi)
+                centers.append((a.x + gcfg['hidden_offset'] * math.cos(angle),
+                                a.y + gcfg['hidden_offset'] * math.sin(angle)))
+        for _ in range(gcfg['tufts_per_tree']):
+            r = math.sqrt(rng.uniform(r_min ** 2, r_max ** 2))
+            theta = rng.uniform(0.0, 2.0 * math.pi)
+            centers.append((tx + r * math.cos(theta), ty + r * math.sin(theta)))
+        blades = []
+        for cx, cy in centers:
+            for _ in range(gcfg['blades_per_tuft']):
+                r = gcfg['tuft_radius'] * math.sqrt(rng.random())
+                theta = rng.uniform(0.0, 2.0 * math.pi)
+                x, y = cx + r * math.cos(theta), cy + r * math.sin(theta)
+                if math.hypot(x - tx, y - ty) < trunk_clearance:
+                    continue
+                blades.append((round(x, 4), round(y, 4), round(rng.uniform(h_min, h_max), 3),
+                               round(rng.uniform(0.0, math.pi), 3),
+                               round(rng.uniform(-0.25, 0.25), 3)))
+        out.append((ti, blades))
+    return out
 
 
 def _material(r, g, b):
@@ -123,6 +181,16 @@ def _tree(index, position, tcfg):
 
 def _apple(apple, acfg):
     r, m = acfg['radius'], acfg['mass']
+    look = acfg.get('variants', {}).get(apple.variant, DEFAULT_VARIANT)
+    bruise = ''
+    if 'bruise_color' in look:
+        # Dark patch on the top of the apple, the side seen by the camera.
+        bruise = f"""
+        <visual name="bruise">
+          <pose>{r * 0.45} 0 {r * 0.55} 0 0 0</pose>
+          <geometry><sphere><radius>{r * 0.6}</radius></sphere></geometry>
+          {_material(*look['bruise_color'])}
+        </visual>"""
     inertia = 0.4 * m * r * r
     return f"""
     <model name="{escape(apple.name)}">
@@ -139,8 +207,28 @@ def _apple(apple, acfg):
         </collision>
         <visual name="visual">
           <geometry><sphere><radius>{r}</radius></sphere></geometry>
-          {_material(0.85, 0.05, 0.05)}
-        </visual>
+          {_material(*look['color'])}
+        </visual>{bruise}
+      </link>
+    </model>"""
+
+
+def _grass(tree_index, blades, gcfg):
+    """Visual-only tuft blades of one tree: the camera sees them, the robot drives through."""
+    width = gcfg['blade_width']
+    visuals = []
+    for k, (x, y, h, yaw, tilt) in enumerate(blades):
+        shade = 0.42 + 0.2 * (k % 3) / 2.0
+        visuals.append(f"""
+        <visual name="blade_{k}">
+          <pose>{x} {y} {h / 2} {tilt} 0 {yaw}</pose>
+          <geometry><box><size>{width} 0.002 {h}</size></box></geometry>
+          {_material(0.15, shade, 0.1)}
+        </visual>""")
+    return f"""
+    <model name="grass_t{tree_index}">
+      <static>true</static>
+      <link name="link">{''.join(visuals)}
       </link>
     </model>"""
 
@@ -196,16 +284,25 @@ def build_world_sdf(config, apples=None):
         parts.append(_tree(i, pos, config['tree']))
     for apple in apples:
         parts.append(_apple(apple, config['apples']))
+    for ti, blades in generate_grass(config, apples):
+        parts.append(_grass(ti, blades, config['grass']))
     parts.append('\n  </world>\n</sdf>\n')
     return ''.join(parts)
 
 
 def build_manifest(config, apples):
     """Ground-truth description of the generated world (for metrics and tests)."""
+    entries = []
+    dressed = 'variants' in config['apples'] or 'grass' in config
+    for a in apples:
+        entry = {'name': a.name, 'tree': a.tree_index, 'x': a.x, 'y': a.y}
+        if dressed:
+            entry.update(variant=a.variant, hidden=a.hidden)
+        entries.append(entry)
     return {
         'world_name': config['world_name'],
         'seed': config['seed'],
         'depot': list(config['depot']['position']),
         'trees': [list(t) for t in config['trees']],
-        'apples': [{'name': a.name, 'tree': a.tree_index, 'x': a.x, 'y': a.y} for a in apples],
+        'apples': entries,
     }

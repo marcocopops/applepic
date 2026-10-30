@@ -4,9 +4,11 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from applepic_gazebo.orchard import build_manifest, build_world_sdf, generate_apples, load_config
+from applepic_gazebo.orchard import (
+    build_manifest, build_world_sdf, generate_apples, generate_grass, load_config)
 
 CONFIG = os.path.join(os.path.dirname(__file__), '..', 'config', 'orchard.yaml')
+HARD_CONFIG = os.path.join(os.path.dirname(__file__), '..', 'config', 'orchard_hard.yaml')
 
 
 @pytest.fixture
@@ -61,3 +63,35 @@ def test_impossible_placement_raises(config):
     config['apples']['per_tree'] = [500, 500]
     with pytest.raises(ValueError):
         generate_apples(config)
+
+
+def test_hard_world_keeps_positions_and_adds_grass():
+    plain, hard = load_config(CONFIG), load_config(HARD_CONFIG)
+    assert plain['trees'] == hard['trees']
+    plain_apples, hard_apples = generate_apples(plain), generate_apples(hard)
+    assert [(a.x, a.y) for a in plain_apples] == [(a.x, a.y) for a in hard_apples]
+    assert {a.variant for a in hard_apples} > {'ripe'}
+    assert any(a.hidden for a in hard_apples)
+    assert hard_apples == generate_apples(hard)
+
+    world = ET.fromstring(build_world_sdf(hard, hard_apples)).find('world')
+    grass = [m for m in world.findall('model') if m.get('name').startswith('grass_')]
+    assert len(grass) == len(hard['trees'])
+    for model in grass:   # the robot must drive through the grass
+        assert model.find('link').findall('visual') and not model.find('link').findall('collision')
+    manifest = build_manifest(hard, hard_apples)
+    assert {'variant', 'hidden'} <= set(manifest['apples'][0])
+
+
+def test_grass_stays_clear_of_the_trunks():
+    hard = load_config(HARD_CONFIG)
+    for ti, blades in generate_grass(hard, generate_apples(hard)):
+        tx, ty = hard['trees'][ti]
+        assert all(math.hypot(b[0] - tx, b[1] - ty) >= hard['grass']['trunk_clearance']
+                   for b in blades)
+
+
+def test_plain_world_has_no_grass(config):
+    assert generate_grass(config, generate_apples(config)) == []
+    manifest = build_manifest(config, generate_apples(config))
+    assert 'variant' not in manifest['apples'][0]

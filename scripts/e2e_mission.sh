@@ -6,6 +6,7 @@
 # Outputs: artifacts/e2e_metrics.json, artifacts/e2e_trajectory.{csv,png}, artifacts/e2e.log.
 # With a seed, a world with other apple positions (same trees) is generated in artifacts/ first.
 # Usage: scripts/e2e_mission.sh [min_ratio [sim_limit [rtf [capacity [wall_timeout [seed]]]]]]
+# World (env): ORCHARD_CONFIG=<yaml> generates the world from that config (e.g. orchard_hard.yaml).
 # Localization (env): LOCALIZATION=truth|gps, GPS_NOISE, GPS_BIAS, GPS_BIAS_TAU (m, m, s), GPS_SEED.
 set -o pipefail
 cd "$(dirname "$0")/.."
@@ -16,11 +17,13 @@ MIN=${1:-0.8}; SIM_LIMIT=${2:-1200}; RTF=${3:-3}; CAP=${4:-10}; TIMEOUT=${5:-180
 mkdir -p artifacts
 WORLD=orchard.sdf
 MANIFEST=src/applepic_gazebo/worlds/orchard_apples.yaml
-if [ -n "$SEED" ]; then
-  WORLD="$PWD/artifacts/orchard_seed$SEED.sdf"
-  MANIFEST="$PWD/artifacts/orchard_seed${SEED}_apples.yaml"
-  ros2 run applepic_gazebo generate_world --config src/applepic_gazebo/config/orchard.yaml \
-    --seed "$SEED" --output "$WORLD" --manifest "$MANIFEST" || exit 2
+CONFIG=${ORCHARD_CONFIG:-src/applepic_gazebo/config/orchard.yaml}
+if [ -n "$SEED" ] || [ -n "${ORCHARD_CONFIG:-}" ]; then
+  STEM=$(basename "$CONFIG" .yaml)
+  WORLD="$PWD/artifacts/${STEM}_seed${SEED:-default}.sdf"
+  MANIFEST="$PWD/artifacts/${STEM}_seed${SEED:-default}_apples.yaml"
+  ros2 run applepic_gazebo generate_world --config "$CONFIG" \
+    ${SEED:+--seed "$SEED"} --output "$WORLD" --manifest "$MANIFEST" || exit 2
 fi
 LOG=artifacts/e2e.log
 CSV="$PWD/artifacts/e2e_trajectory.csv"
