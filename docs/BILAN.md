@@ -116,7 +116,7 @@ make demo LOCALIZATION=gps   # démo avec GPS (non testée avec la GUI, seulemen
 
 ## 4. Cassé / bloqué
 - Rien de bloquant. Voir `docs/TODO_HUMAIN.md` (optionnel).
-- **Obstacles + GPS grossier pas fiable : 71/87 (82 %), 1 FAIL sur 3** : 15 chocs autour d'une caisse font abandonner 2 arbres (11 pommes).
+- **Obstacles + GPS grossier pas fiable : 71/87 (82 %), 1 FAIL sur 3** : 14 chocs autour d'une caisse font abandonner 2 arbres (11 pommes).
   Cause exacte non établie. Démo GUI non relancée depuis ces changements (seulement `check_demo.sh` en headless).
 - **Démo GUI : 1 lancement sur 9 est resté muet** (aucune transition de mission pendant 90 s), cause inconnue, non
   reproduit. Si le robot ne bouge pas au bout de 30 s : Ctrl+C et relancer.

@@ -298,7 +298,7 @@
     pas été relancé : défaut GPS seeds 0 et 1 : 29/29 et 27/29 ; difficile vérité : 29/29. **Aucune pomme éjectée sur les 14 runs.**
   - `make test` : 158 tests, 0 échec. `scripts/check_demo.sh` PASS. Aucun processus orphelin.
 - Ne marche pas / limites :
-  - **Obstacles + GPS grossier : 71/87 (82 %), 1 FAIL sur 3.** Dans le FAIL, 15 chocs autour de la caisse (13 ; 10) épuisent deux fois le
+  - **Obstacles + GPS grossier : 71/87 (82 %), 1 FAIL sur 3.** Dans le FAIL, 14 chocs autour de la caisse (13 ; 10) épuisent deux fois le
     compteur : arbres 4 et 5 abandonnés, 11 pommes perdues. Les points mémorisés sont autour de (14 ; 10), soit ~1 m d'écart : erreur
     de pose probable, cause exacte non établie (journal : `artifacts/obst/obst_gps2.log`, non commité).
   - Le pas de côté n'a pas d'avantage démontré en GPS grossier : 26/27/18 contre 28/26 avant lui (seeds 0/1, boucle de 40 chocs alors).
