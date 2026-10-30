@@ -93,7 +93,10 @@ class MissionParams:
     bump_pick_clearance: float = 0.55  # m, same for a straight approach to an apple
     bump_merge: float = 0.1         # m, a contact this close to a known one is the same point
     bump_trunk_gate: float = 0.5    # m, a contact this close to a trunk axis is that trunk
-    max_goto_bumps: int = 5         # bumps on the way to a tree before leaving that tree out
+    max_goto_bumps: int = 8         # bumps on the way to a tree before leaving that tree out
+    sidestep: float = 1.0           # m, sidestep after a second bump in a row while travelling,
+                                    # this much longer each time (long obstacle), then the other side
+    sidestep_tries: int = 3         # sidesteps on one side before trying the other one
 
 
 @dataclass
@@ -140,12 +143,14 @@ class Mission:
         # Bump escape
         self.last_bump = None
         self.escape_until = None
-        self.escape_dir = -1.0
+        self.escape_flips = 0
         self.last_v = 0.0
         self.obstacles = []         # (x, y) contact points with what the map does not know
         self.hit_obstacle = None    # contact point of the current escape
         self.bump_tried = set()     # tracks and views already given one more try after a bump
         self.goto_bumps = 0
+        self.sidestep_from = None
+        self.via = None             # latest sidestep point
         # ANCHOR bookkeeping
         self.anchor_fixed = False
         self.anchor_start = None
@@ -318,9 +323,29 @@ class Mission:
         """True if the base standing at xy would be too close to a known obstacle."""
         return any(math.dist(o, xy[:2]) < self.p.bump_clearance for o in self.obstacles)
 
-    def _plan(self, goal, trunks, clearance):
-        return plan_path(self._pose[:2], goal, trunks, clearance, bumps=self.obstacles,
+    def _plan(self, goal, trunks, clearance, start=None):
+        return plan_path(start or self._pose[:2], goal, trunks, clearance, bumps=self.obstacles,
                          bump_clearance=self.p.bump_clearance)
+
+    def _sidestep(self):
+        """Repeated bumps on a move: planning from contact points alone does not get past that
+        obstacle, so go sideways first, further each time from where this started, then on the other
+        side, then towards the goal again."""
+        if self.goto_bumps < 2:
+            self.sidestep_from = None
+            return
+        if self.sidestep_from is None:
+            self.sidestep_from = self._pose[:2]
+        x, y = self.sidestep_from
+        goal = self.path[-1]
+        d = max(math.dist((x, y), goal), 1e-6)
+        ux, uy = (goal[0] - x) / d, (goal[1] - y) / d
+        k = self.goto_bumps - 1
+        n = self.p.sidestep_tries
+        side = self.p.sidestep * (k if k <= n else n - k)
+        self.via = (x - side * uy, y + side * ux)
+        self.path = (self._plan(self.via, self.trees, self.p.travel_clearance)
+                     + self._plan(goal, self.trees, self.p.travel_clearance, start=self.via))
 
     def _travel_path(self, goal, clearance):
         return self._plan(goal, self.trees, clearance)
@@ -464,16 +489,19 @@ class Mission:
                 return None
             self.stats.bumps += 1
             self.hit_obstacle = self._remember_obstacle()
-            self.escape_dir = -1.0
+            self.escape_flips = 0
             self.escape_until = now + self.p.escape_time
         elif now >= self.escape_until:
             if not self._touching(now):
                 self.escape_until = None
                 self._after_escape(now)
                 return 0.0, 0.0
-            self.escape_dir = -self.escape_dir   # blocked this way too
+            self.escape_flips += 1                # blocked this way too
             self.escape_until = now + self.p.escape_time
-        return self.escape_dir * self.p.escape_speed, 0.0
+        phase = self.escape_flips % 3             # back, forward, then pivot to change the angle
+        if phase == 2:
+            return 0.0, self.p.max_face_rate / 2
+        return (-1.0 if phase == 0 else 1.0) * self.p.escape_speed, 0.0
 
     def _remember_obstacle(self):
         """Remember the bumper edge that hit something; return its middle, None if it is a trunk
@@ -529,8 +557,11 @@ class Mission:
                 self._advance_tree(f'tree {self.tree} out of reach')
             else:
                 self._enter_goto_tree(f'bump{where}')
+                self._sidestep()
         elif self.state == GOTO_BASE:
+            self.goto_bumps += 1
             self._enter_goto_base(self.resume_tree, f' (bump{where})')
+            self._sidestep()
 
     def _skip_view(self, note):
         self.k += 1
@@ -633,6 +664,7 @@ class Mission:
         v, w, arrived = self._follow_path()
         if not arrived:
             return v, w
+        self.goto_bumps = 0
         self._set_state(UNLOAD)
         self.unload_requested = True
         return 0.0, 0.0

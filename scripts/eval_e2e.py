@@ -25,14 +25,20 @@ from std_msgs.msg import String
 import yaml
 
 
-def gz_models():
-    try:
-        out = subprocess.run(['gz', 'model', '--list'], capture_output=True, text=True,
-                             timeout=20)
-    except subprocess.TimeoutExpired:
-        return set()
-    return {line.strip().lstrip('- ').strip() for line in out.stdout.splitlines()
-            if line.strip().startswith('-')}
+def gz_models(attempts=5):
+    """Model names in gz; retried, as the query sometimes gets no answer under load."""
+    for _ in range(attempts):
+        try:
+            out = subprocess.run(['gz', 'model', '--list'], capture_output=True, text=True,
+                                 timeout=20)
+        except subprocess.TimeoutExpired:
+            continue
+        models = {line.strip().lstrip('- ').strip() for line in out.stdout.splitlines()
+                  if line.strip().startswith('-')}
+        if models:
+            return models
+        time.sleep(2.0)
+    return set()
 
 
 def gz_pose(name):

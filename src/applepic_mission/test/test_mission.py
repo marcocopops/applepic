@@ -233,8 +233,10 @@ def _chassis_hits(pose, crates):
     """True if the chassis rectangle overlaps one of the square crates (x, y, half side)."""
     x, y, yaw = pose
     for cx, cy, half in crates:
-        for lon in (-0.2, 0.0, 0.2, 0.4):
-            for lat in (-0.3, 0.0, 0.3):
+        if math.dist((x, y), (cx, cy)) > 0.6 + half * 1.5:
+            continue
+        for lon in (-0.2, -0.1, 0.0, 0.1, 0.2, 0.3, 0.4):    # finer than the crates
+            for lat in (-0.3, -0.2, -0.1, 0.0, 0.1, 0.2, 0.3):
                 px = x + lon * math.cos(yaw) - lat * math.sin(yaw)
                 py = y + lon * math.sin(yaw) + lat * math.cos(yaw)
                 if abs(px - cx) <= half and abs(py - cy) <= half:
@@ -612,3 +614,43 @@ def test_full_mission_goes_around_unknown_crates():
 
 def _clear(crate, apple):
     return max(abs(apple[0] - crate[0]), abs(apple[1] - crate[1])) > crate[2] + 0.1
+
+
+def test_repeated_bumps_sidestep_further_then_on_the_other_side():
+    m = make_mission(sidestep_tries=2)
+    pose = (2.0, 0.0, 0.0)
+    m.step(pose, 0.0)
+    _moving_bump(m, pose, 1.0)
+    m.step(pose, 3.5)
+    assert m.via is None
+    vias = []
+    for i in range(3):
+        _moving_bump(m, pose, 5.0 + 4 * i)
+        m.step(pose, 7.5 + 4 * i)
+        vias.append(m.via)
+    assert math.dist(vias[0], pose[:2]) == pytest.approx(1.0)
+    assert math.dist(vias[1], pose[:2]) == pytest.approx(2.0)
+    assert math.dist(vias[2], pose[:2]) == pytest.approx(1.0)
+    assert math.dist(vias[2], vias[0]) == pytest.approx(2.0)
+
+
+def test_robot_blocked_both_ways_ends_up_pivoting():
+    m = make_mission()
+    x, y, yaw = at_search_point(m)
+    m.on_bump(1.0)
+    m.step((x, y, yaw), 1.0)
+    m.on_bump(3.0)
+    assert m.step((x, y, yaw), 3.1)[0] > 0.0
+    m.on_bump(5.2)
+    v, w = m.step((x, y, yaw), 5.3)
+    assert v == 0.0 and w != 0.0
+
+
+def test_full_mission_gets_past_a_long_wall_on_the_way_to_the_depot():
+    trees = [(4.0, 4.0)]
+    apples = ring_apples(trees, per_tree=3)
+    # Wall across the straight way between the tree and the depot, longer than any detour.
+    wall = [(1.0 + 0.2 * i, 1.8 - 0.2 * i, 0.15) for i in range(-8, 9)]
+    m, basket, remaining, t, _ = run_world(apples, trees=trees, crates=wall, max_time=1500.0)
+    assert m.state == DONE and not remaining
+    assert m.stats.bumps >= 2
