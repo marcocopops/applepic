@@ -1,84 +1,87 @@
-# ApplePic — contexte pour les sessions Claude
+# ApplePic — context for Claude sessions
 
-POC en simulation d'un robot ramasseur de pommes (base différentielle ~60x45 cm, caméra,
-panier, préhenseur "magique"). Consignes complètes : `KICKOFF.md`. Mémoire inter-sessions :
-`docs/PROGRESS.md` (état + prochaine tâche), `docs/DECISIONS.md`, `docs/BLOCKERS.md`, git log.
+Simulated proof of concept of an apple-picking robot (differential base ~60x45 cm, camera, basket,
+"magic" gripper until M20 replaces it with a MoveIt arm and a real two-finger gripper).
+Roadmap and full instructions: `KICKOFF.md`. Memory between sessions: `docs/PROGRESS.md` (state + next
+milestone), `docs/BLOCKERS.md`, `docs/DECISIONS.md`, `docs/HISTORY.md`, git log. Audit: `docs/AUDIT.md`.
 
-## Environnement
-- Ubuntu 24.04, ROS 2 **Jazzy** + **gz Harmonic (gz sim 8)** installés nativement dans `/opt/ros/jazzy`.
-- Workflow natif par défaut (Docker optionnel : `make docker-image` puis `USE_DOCKER=1 make ...`).
-- GPU NVIDIA dispo : le rendu caméra headless (`gz sim -s --headless-rendering`) fonctionne (vérifié en session 1).
-- Topics robot : `/cmd_vel`, `/odom` (vérité terrain, repère monde), `/wheel_odom`, `/tf`,
-  `/joint_states`, `/camera/image_raw`, `/camera/camera_info`, `/clock`, `/imu`, `/gps/raw` (fix parfait),
-  `/gps/fix` (bruité, mode gps).
-- Pare-chocs : `/bumper` (contacts gz châssis + bande ; le `<topic>` va DANS `<contact>`, le plugin Contact dans le monde).
-- Collisions : `collide_bitmask` 0x01 roues/roulette, 0x02 pommes (le robot roule dessus sans les déplacer).
-- Troncs : `/trees/trunks` (repère robot, `apple_detector`), `/localization/trunk_fix` (`localizer`).
-- Pose pour tous les nœuds : `/localization/odom` (repère `map`) + TF `map → odom → base_footprint`,
-  publiés par `localizer` (`localization:=truth` : vérité + identité ; `gps` : EKF GPS + roues + gyro).
-  Seul le préhenseur magique lit `/odom` (vérité terrain).
-- Pas installés : Nav2, robot_localization (voir `docs/TODO_HUMAIN.md`).
+## Environment
+- Ubuntu 24.04, ROS 2 **Jazzy** + **gz Harmonic (gz sim 8)** installed natively in `/opt/ros/jazzy`.
+- Native workflow by default (optional Docker, never verified: `make docker-image`, then `USE_DOCKER=1 make ...`).
+- NVIDIA GPU available: headless camera rendering (`gz sim -s --headless-rendering`) works.
+- Robot topics: `/cmd_vel`, `/odom` (ground truth, world frame), `/wheel_odom`, `/tf`, `/joint_states`,
+  `/camera/image_raw`, `/camera/camera_info`, `/clock`, `/imu`, `/gps/raw` (perfect fix), `/gps/fix` (noisy, gps mode).
+- Bumper: `/bumper` (gz contacts of chassis + strip; `<topic>` goes INSIDE `<contact>`, the Contact plugin in the world).
+- Collisions: `collide_bitmask` 0x01 wheels/caster, 0x02 apples (the robot drives over them without moving them).
+- Trunks: `/trees/trunks` (robot frame, `apple_detector`), `/localization/trunk_fix` (`localizer`).
+- Pose for all nodes: `/localization/odom` (`map` frame) + TF `map → odom → base_footprint`, published by
+  `localizer` (`localization:=truth`: truth + identity; `gps`: EKF on GPS + wheels + gyro).
+  Only the magic gripper reads `/odom` (ground truth).
+- Not installed: MoveIt planners and config tools, ros2_controllers, gz_ros2_control (see `docs/TODO_HUMAIN.md`, needed from M14);
+  Nav2 and robot_localization (out of scope).
 
-## Commandes
-- `make build` : `colcon build --symlink-install`
-- `make test` : build + `colcon test` + résultats
-- `make world` : régénère le monde SDF du verger depuis la config YAML
-- `make sim-headless` : lance la simu headless pendant `SIM_SECONDS` (défaut 20)
-- `scripts/check_drive.sh [x y yaw]` : smoke test conduite (cmd_vel → odom) + captures caméra
-- `scripts/check_navigation.sh [timeout]` : boucle complète headless (waypoint_follower) + `artifacts/nav_trajectory.png`
-- `scripts/check_perception.sh [x y yaw name min]` : détection HSV headless comparée au manifeste + `artifacts/perception_<name>.png`
-- `ros2 launch applepic_bringup perception.launch.py x:=2.6 y:=4.0` : simu + `apple_detector` (`/apples/detections`, `/apples/debug_image`)
-- `scripts/check_picking.sh [x y yaw min timeout capacity]` : ramassage headless (detector + gripper + apple_picker), recoupe `/basket/*` et `gz model --list`
-- `ros2 launch applepic_bringup picking.launch.py x:=9.6 y:=9.5 yaw:=1.57 [capacity:=10]` : simu + détection + ramassage
-- `make e2e [E2E_SEED=n]` / `scripts/e2e_mission.sh [min_ratio sim_limit rtf capacity wall_timeout seed]` : scénario M7
-  de bout en bout headless (1 boucle, RTF 3 par défaut, ~5 min), PASS/FAIL, métriques `artifacts/e2e_metrics.json`
-  (dont poses finales des pommes restées au sol), tracé `artifacts/e2e_trajectory.png` ; avec un seed, monde
-  régénéré dans `artifacts/orchard_seed<n>.sdf`. Diagnostic : `grep -E "gave up|left tree" artifacts/e2e.log`
-- gz-transport Python : `GzNode.request` garde le GIL pendant l'attente (gèle tout le nœud) → pour un service gz,
-  utiliser `gz service` en sous-processus (cf. `gripper.py`)
-- Localisation GPS : `make e2e|demo LOCALIZATION=gps [GPS_NOISE=0.02 GPS_BIAS=0.0]`, ou
-  `localization:=gps gps_noise:=… gps_bias:=… gps_bias_tau:=… gps_seed:=…` sur tous les launch ;
-  `artifacts/e2e_metrics.json` → clé `localization` (erreur vs vérité), tracé vérité en orange.
-- Verger difficile (herbe, pommes orange/sombres/tachées) : `make e2e ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_hard.yaml`.
-- Verger avec obstacles inconnus : `make e2e ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_obstacles.yaml`.
-  Lancer une série en arrière-plan sans `setsid` (il rend la main tout de suite : fausse notification de fin).
-- `scripts/eval_trunks.py [--output f]` à côté d'une simu : erreur de `/trees/trunks` contre la vérité (arrêt : SIGTERM).
-  Lancer une série e2e en arrière-plan : éviter `wait` sans garde-fou sur un script auxiliaire (une boucle a déjà bloqué).
-- `scripts/log_bumps.py [--output f]` à côté d'une simu : ce que touche le pare-chocs, où autour du châssis (vérité, diagnostic).
-- `make demo [DEMO_RTF=2]` / `ros2 launch applepic_bringup demo.launch.py [rtf:=2 rviz:=false headless:=true]` :
-  démo M8 (GUI Gazebo + RViz, nœud `mission_viz` : `/mission_viz/markers|path`)
-- `scripts/check_demo.sh [timeout rtf]` : démo headless sans RViz, valide marqueurs/HUD/trajectoire
-- Capturer une fenêtre (pas de Xvfb/ImageMagick) : `DISPLAY=:1 xwd -id <win>` (id via `xwininfo -root -tree`),
-  puis décodage XWD en Python (PIL ne lit pas le XWD)
-- `ros2 launch applepic_bringup mission.launch.py [headless:=false capacity:=10 loops:=1]` : simu + détection + mission
-- `ros2 launch applepic_bringup navigation.launch.py loops:=1 [headless:=false]` : simu + suivi de boucle
-- `scripts/capture_camera.py out.png` : sauve une image de `/camera/image_raw` (simu lancée)
-- Arrêter une simu lancée en arrière-plan : par PGID (`set -m` puis `kill -INT -- -$PID`), jamais par motif.
-  `set -m` doit être exécuté AVANT la ligne `... &` (pas dans la chaîne backgroundée), sinon `$!` n'est pas le PGID.
-- Shell manuel : `source /opt/ros/jazzy/setup.bash && source install/setup.bash`
+## Commands
+- `make build`: `colcon build --symlink-install`
+- `make test`: build + `colcon test` + results
+- `make world`: regenerate the orchard SDF world from the YAML config
+- `make sim-headless`: run the headless sim for `SIM_SECONDS` (default 20)
+- `scripts/check_drive.sh [x y yaw]`: driving smoke test (cmd_vel → odom) + camera captures
+- `scripts/check_navigation.sh [timeout]`: full headless loop (waypoint_follower) + `artifacts/nav_trajectory.png`
+- `scripts/check_perception.sh [x y yaw name min]`: headless HSV detection compared to the manifest + `artifacts/perception_<name>.png`
+- `ros2 launch applepic_bringup perception.launch.py x:=2.6 y:=4.0`: sim + `apple_detector` (`/apples/detections`, `/apples/debug_image`)
+- `scripts/check_picking.sh [x y yaw min timeout capacity]`: headless picking (detector + gripper + apple_picker), cross-checks `/basket/*` and `gz model --list`
+- `ros2 launch applepic_bringup picking.launch.py x:=9.6 y:=9.5 yaw:=1.57 [capacity:=10]`: sim + detection + picking
+- `make e2e [E2E_SEED=n]` / `scripts/e2e_mission.sh [min_ratio sim_limit rtf capacity wall_timeout seed]`: M7 headless end-to-end
+  scenario (1 loop, RTF 3 by default, ~5 min), PASS/FAIL, metrics in `artifacts/e2e_metrics.json` (including final poses of
+  apples left on the ground), plot `artifacts/e2e_trajectory.png`; with a seed, world regenerated in `artifacts/orchard_seed<n>.sdf`.
+  Diagnosis: `grep -E "gave up|left tree" artifacts/e2e.log`
+- gz-transport Python: `GzNode.request` holds the GIL while waiting (freezes the whole node) → for a gz service,
+  run `gz service` as a subprocess (see `gripper.py`)
+- GPS localization: `make e2e|demo LOCALIZATION=gps [GPS_NOISE=0.02 GPS_BIAS=0.0]`, or
+  `localization:=gps gps_noise:=… gps_bias:=… gps_bias_tau:=… gps_seed:=…` on all launch files;
+  `artifacts/e2e_metrics.json` → key `localization` (error vs truth), truth plotted in orange.
+- Hard orchard (grass, orange/dark/bruised apples): `make e2e ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_hard.yaml`.
+- Orchard with unknown obstacles: `make e2e ORCHARD_CONFIG=src/applepic_gazebo/config/orchard_obstacles.yaml`.
+  Run a series in the background without `setsid` (it returns at once: false end notification).
+- `scripts/eval_trunks.py [--output f]` next to a sim: error of `/trees/trunks` against truth (stop with SIGTERM).
+  In a background e2e series, avoid an unguarded `wait` on a helper script (a loop has already hung on it).
+- `scripts/log_bumps.py [--output f]` next to a sim: what the bumper touches, where around the chassis (truth, diagnosis).
+- `make demo [DEMO_RTF=2]` / `ros2 launch applepic_bringup demo.launch.py [rtf:=2 rviz:=false headless:=true]`:
+  M8 demo (Gazebo GUI + RViz, `mission_viz` node: `/mission_viz/markers|path`)
+- `scripts/check_demo.sh [timeout rtf]`: headless demo without RViz, checks markers/HUD/trajectory.
+  **Today it stops after ~14 simulated seconds: it proves little until M10.**
+- Capture a window (no Xvfb/ImageMagick): `DISPLAY=:1 xwd -id <win>` (id from `xwininfo -root -tree`), then decode XWD
+  in Python (PIL cannot read XWD). The decoder used so far produced striped images: not usable as is.
+- `ros2 launch applepic_bringup mission.launch.py [headless:=false capacity:=10 loops:=1]`: sim + detection + mission
+- `ros2 launch applepic_bringup navigation.launch.py loops:=1 [headless:=false]`: sim + loop following
+- `scripts/capture_camera.py out.png`: save an image from `/camera/image_raw` (sim running)
+- Stop a sim running in the background: by PGID (`set -m` then `kill -INT -- -$PID`), never by pattern.
+  `set -m` must run BEFORE the `... &` line (not inside the backgrounded chain), otherwise `$!` is not the PGID.
+- Manual shell: `source /opt/ros/jazzy/setup.bash && source install/setup.bash`
+- Autonomous loop: `./run_applepic.sh [HH:MM]`. It refuses to start while `STOP` exists; it stops on `STOP`, at the
+  deadline, or after two sessions without a commit. Logs are `stream-json` in `logs/`.
 
-## Arborescence
-- `src/applepic_description` : URDF/xacro du robot
-- `src/applepic_gazebo` : générateur de monde (verger), mondes SDF, bridge ros_gz
-- `src/applepic_navigation` : `controller.py` (suivi de point), `route.py` (boucle d'arbres), nœud `waypoint_follower`,
-  `gps.py` (ENU ↔ géodésique, modèle d'erreur GPS), `localization.py` (EKF map → odom, dead reckoning,
-  `map_shift`), nœuds `gps_noise` et `localizer`
-- `src/applepic_perception` : `detector.py` (HSV), `trunk.py` (pied de tronc), `projection.py` (pixel→sol), nœud `apple_detector`
-- `src/applepic_mission` : `basket.py`, `picking.py`, `apple_tracker.py` (fusion des détections), `approach.py`
-  (préhenseur → point), nœuds `gripper` (ramassage magique : `/basket/count|full|picked|picked_point`,
-  srv `/basket/unload`), `apple_picker` (démo M5), `coverage.py` (empreinte caméra au sol + grille de couverture par arbre),
-  `mission.py` (machine à états pure) et nœud `mission`
-  (`/mission/state|status|stats`), `viz.py` + nœud `mission_viz` (marqueurs RViz de la démo)
-- `src/applepic_bringup` : launch files de haut niveau
-Tous les paquets sont `ament_python`. La logique pure (sans rclpy) est dans des modules
-séparés testables par pytest sans ROS lancé.
+## Layout
+- `src/applepic_description`: robot URDF/xacro
+- `src/applepic_gazebo`: world generator (orchard), SDF worlds, ros_gz bridge
+- `src/applepic_navigation`: `controller.py` (point following), `route.py` (tree loop, A* around bump points), `waypoint_follower` node,
+  `gps.py` (ENU ↔ geodetic, GPS error model), `localization.py` (map → odom EKF, dead reckoning, `map_shift`), `gps_noise` and `localizer` nodes
+- `src/applepic_perception`: `detector.py` (HSV), `trunk.py` (trunk foot), `projection.py` (pixel → ground), `apple_detector` node
+- `src/applepic_mission`: `basket.py`, `picking.py`, `apple_tracker.py` (detection fusion), `approach.py` (gripper → point), nodes `gripper`
+  (magic picking: `/basket/count|full|picked|picked_point`, srv `/basket/unload`), `apple_picker` (M5 demo), `coverage.py` (camera ground
+  footprint + per-tree coverage grid), `mission.py` (pure state machine) and `mission` node (`/mission/state|status|stats`),
+  `viz.py` + `mission_viz` node (demo RViz markers)
+- `src/applepic_bringup`: top-level launch files
+All packages are `ament_python`. Pure logic (no rclpy) lives in separate modules testable by pytest with no ROS running.
 
 ## Conventions
-- Code/noms/commentaires en anglais ; docs en français.
-- Conventional commits en anglais, petits et fréquents ; jamais de réécriture d'historique, jamais de push.
-- Pas de sudo. Actions humaines → `docs/TODO_HUMAIN.md`.
+- Everything in the repo is in English: code, names, comments, docs, README, commits.
+- Small, frequent conventional commits; never rewrite history; never push.
+- No sudo. Human actions → `docs/TODO_HUMAIN.md`.
+- Navigation and coarse-GPS tuning are frozen: no work on them outside a roadmap milestone.
 
-## Vérifier
-- `make test` doit passer (0 failures).
-- Simu : `make sim-headless`, puis dans un autre shell `gz topic -l` / `ros2 topic list`.
-- Captures caméra : sauvegardées en PNG dans `artifacts/` (ignoré par git).
+## Verify
+- `make test` must pass (0 failures).
+- Sim: `make sim-headless`, then in another shell `gz topic -l` / `ros2 topic list`.
+- Camera captures: saved as PNG in `artifacts/` (ignored by git).
+- Before claiming a gain, compare several runs: results are not deterministic.
