@@ -1,6 +1,6 @@
 # History
 
-Condensed from the session log. The full original logs, in French, are `docs/PROGRESS.md` and `docs/BILAN.md` at commit `f6610b5`.
+Condensed from the session log. The full original logs, in French, are `docs/PROGRESS.md` and `docs/BILAN.md` at commit `99b9b9a`.
 
 ## M0 to M8 (2026-10-26)
 - **M0 Infrastructure:** ROS 2 workspace with 6 `ament_python` packages, Makefile, optional Dockerfile. Headless camera rendering works.

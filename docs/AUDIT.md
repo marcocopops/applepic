@@ -1,6 +1,6 @@
 # Project audit (2026-11-01)
 
-## Actual state (replayed today on commit `f6610b5`)
+## Actual state (replayed today on commit `99b9b9a`)
 1. `make test`: 163 tests, 0 failures, 22 s.
 2. Default orchard, true pose, `scripts/e2e_mission.sh` run twice: **29/29 PASS** in 722 and 721 simulated seconds (~4 min 20 of real time).
 3. Coarse GPS (0.5 m + 1 m bias), orchard seed 7, never tested before: **31/31 PASS**, 1000 s, 4 tracks given up.
@@ -29,7 +29,7 @@ Measured from `logs/runner.log` and git: 22 launches, 10.6 h of sessions, 52 com
 6. **The stop rule does not apply.** The session judges whether "a useful improvement" remains, and one always does. It never created `STOP`. Both `STOP` files (Oct 26 17:45, Oct 30 23:24) came neither from sessions nor from a script, so probably from the human.
 7. **No loop since Oct 30 23:37.** `STOP` is still present: `run_applepic.sh` would exit immediately.
 
-Ruled out: regressions (`make test` broke only once, `c5c0951`, fixed by the next commit), sessions too short (the 2 s and 52–61 s ones at the start came from the usage limit and from `pkill -f`, solved on Oct 26).
+Ruled out: regressions (`make test` broke only once, `258fb8a`, fixed by the next commit), sessions too short (the 2 s and 52–61 s ones at the start came from the usage limit and from `pkill -f`, solved on Oct 26).
 Rediscovered every session: apples being thrown (sessions 11, 13, 14, solved in 15 by D19) and "GUI demo not rerun" (repeated 5 times, never handled). `BLOCKERS.md` stayed empty despite several unknown causes.
 
 ## Strengths
