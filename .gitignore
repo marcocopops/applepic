@@ -7,3 +7,11 @@ __pycache__/
 .pytest_cache/
 artifacts/
 *.egg-info/
+STOP
+prompt_recadrage.md
+*.swp
+*.db3
+*.mcap
+rosbag2_*/
+datasets/
+.coverage*

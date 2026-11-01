@@ -16,5 +16,8 @@ Keep this file under 40 lines. Older entries go to `docs/HISTORY.md`.
 - Attach on contact with a real gripper through MoveIt 2; priorities arm, then demo, then perception; HSV with
   trap scenes; done means M23.
 
+## Publication
+- `LICENSE`, public `README.md`, `.gitignore` done. History scan: no secret and no heavy file; the personal email in old `package.xml` and `setup.py` versions is the only finding (see the audit session summary).
+
 ## Next milestone: M10 — Validation series
 See `KICKOFF.md`. M10 to M13 need no installation. M14 onward needs `docs/TODO_HUMAIN.md`.

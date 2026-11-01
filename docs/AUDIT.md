@@ -1,76 +1,76 @@
-# Audit du projet (2026-11-01)
+# Project audit (2026-11-01)
 
-## État réel (rejoué aujourd'hui sur le commit `f6610b5`)
-1. `make test` : 163 tests, 0 échec, 22 s.
-2. Verger par défaut, pose vraie, `scripts/e2e_mission.sh` joué 2 fois : **29/29 PASS** en 722 et 721 s simulées (~4 min 20 réelles).
-3. GPS grossier (0,5 m + biais 1 m), verger seed 7, jamais testé avant : **31/31 PASS**, 1000 s, 4 abandons de piste.
-4. GPS grossier + obstacles, bruit seed 0 : **26/29 PASS**, 949 s (la doc annonce 27/29 ; même ordre de grandeur, runs non déterministes).
-5. `scripts/check_demo.sh` : PASS, mais il s'arrête après **14 s simulées** et 5 m parcourus (12 s réelles). Il prouve que les topics RViz existent, pas que la démo va au bout.
-6. Démo GUI non vérifiée par cet audit, ni par les sessions depuis la session 14. Un démarrage sur 9 restait muet, cause inconnue.
-7. La doc est fiable sur les chiffres : aucune affirmation contredite. Elle dit moins clairement ce qui suit.
-8. **Le robot n'a pas de bras ni de pince.** Le « préhenseur » est un repère : sous 7 cm de la vérité terrain, la pomme est supprimée du monde.
-9. Les roues traversent les pommes (D19) et le monde reste facile : sol plat, couleurs unies, aucun distracteur rouge.
-10. Conclusion : c'est une bonne démo de navigation et de recherche au sol. Ce n'est pas encore un ramasseur de pommes.
+## Actual state (replayed today on commit `f6610b5`)
+1. `make test`: 163 tests, 0 failures, 22 s.
+2. Default orchard, true pose, `scripts/e2e_mission.sh` run twice: **29/29 PASS** in 722 and 721 simulated seconds (~4 min 20 of real time).
+3. Coarse GPS (0.5 m + 1 m bias), orchard seed 7, never tested before: **31/31 PASS**, 1000 s, 4 tracks given up.
+4. Coarse GPS + obstacles, noise seed 0: **26/29 PASS**, 949 s (the docs said 27/29; same order of magnitude, runs are not deterministic).
+5. `scripts/check_demo.sh`: PASS, but it stops after **14 simulated seconds** and 5 m driven (12 s of real time). It proves the RViz topics exist, not that the demo completes.
+6. GUI demo not checked by this audit, nor by any session since session 14. One start in 9 stayed silent, cause unknown.
+7. The docs are reliable on numbers: no claim was contradicted. They are less clear about what follows.
+8. **The robot has no arm or gripper.** The "gripper" is a frame: within 7 cm of the ground truth, the apple is removed from the world.
+9. Wheels go through apples (D19) and the world stays easy: flat ground, plain colours, no red distractor.
+10. Conclusion: this is a good navigation and ground-search demo. It is not yet an apple picker.
 
-## Cause du ralentissement
-Mesuré dans `logs/runner.log` et git : 22 lancements, 10,6 h de sessions, 52 commits.
+## Why progress slowed down
+Measured from `logs/runner.log` and git: 22 launches, 10.6 h of sessions, 52 commits.
 
-| | 26/10 | 30/10 |
+| | Oct 26 | Oct 30 |
 |---|---|---|
-| Durée d'une session utile | 4 à 20 min (M1–M8), puis 33 et 125 min | 48 à 98 min |
-| Commits par heure | 5,7 | 3,7 |
-| Résultat | M0 à M8 en ~2 h 10 | 5 sous-sujets de M9 en 6,5 h |
+| Length of a useful session | 4 to 20 min (M1–M8), then 33 and 125 min | 48 to 98 min |
+| Commits per hour | 5.7 | 3.7 |
+| Result | M0 to M8 in ~2 h 10 | 5 M9 sub-topics in 6.5 h |
 
-1. **Feuille de route épuisée après ~2 h.** M9+ est une liste de 7 idées sans critère, « à prioriser toi-même ». Rien n'y définit « fini ».
-2. **Dérive vers un scénario auto-imposé.** Le GPS RTK donnait déjà 29/29 en session 12. Les sessions 13 à 16 (~5 h) ont traité le GPS grossier, et chaque correctif a ouvert le suivant : troncs → `ANCHOR` → blocage → pare-chocs → obstacles → A*. Gain obtenu : ~94–95 % sur un scénario que personne n'a demandé.
-3. **Métrique saturée.** Le scénario de référence est à 100 % depuis la session 8. Les sessions n'ont plus de signal et créent des scénarios plus durs pour en retrouver un.
-4. **Attente de simulation.** Une série de validation dure 35 à 45 min (session 15 : ~80 min sur 96), et les runs sont non déterministes avec un seul run par seed. Le 18 → 29/29 de la session 16 surestime le gain, comme PROGRESS le reconnaît.
-5. **Le bras n'est jamais choisi.** Dernier de la liste, il dépend de paquets non installés (`sudo`, interdit aux sessions) : les sessions prennent ce qu'elles peuvent finir.
-6. **La règle d'arrêt ne s'applique pas.** C'est la session qui juge s'il reste « une amélioration utile », et il en reste toujours. Elle n'a jamais créé `STOP`. Les deux `STOP` (26/10 17:45, 30/10 23:24) ne viennent ni des sessions ni d'un script, donc sans doute de toi.
-7. **Pas de boucle depuis le 30/10 23:37.** Le `STOP` est toujours présent : `run_applepic.sh` sortirait aussitôt.
+1. **Roadmap exhausted after ~2 h.** M9+ is a list of 7 ideas with no criteria, "prioritize it yourself". Nothing defines "done".
+2. **Drift towards a self-imposed scenario.** RTK GPS already gave 29/29 in session 12. Sessions 13 to 16 (~5 h) worked on coarse GPS, and each fix opened the next: trunks → `ANCHOR` → stuck robot → bumper → obstacles → A*. Gain: ~94–95 % on a scenario nobody asked for.
+3. **Saturated metric.** The reference scenario has been at 100 % since session 8. Sessions have no signal left and create harder scenarios to get one back.
+4. **Waiting for simulation.** A validation series lasts 35 to 45 min (session 15: ~80 min out of 96), and runs are not deterministic with one run per seed. The 18 → 29/29 of session 16 overstates the gain, as PROGRESS admitted.
+5. **The arm is never chosen.** Last on the list, it depends on packages that are not installed (`sudo`, forbidden to sessions): sessions take what they can finish.
+6. **The stop rule does not apply.** The session judges whether "a useful improvement" remains, and one always does. It never created `STOP`. Both `STOP` files (Oct 26 17:45, Oct 30 23:24) came neither from sessions nor from a script, so probably from the human.
+7. **No loop since Oct 30 23:37.** `STOP` is still present: `run_applepic.sh` would exit immediately.
 
-Écarté : régressions (`make test` n'a cassé qu'une fois, `c5c0951`, corrigé au commit suivant), sessions trop courtes (les 2 s et 52–61 s du début viennent de la limite d'usage et des `pkill -f`, réglés le 26/10).
-Redécouvert à chaque session : l'éjection des pommes (sessions 11, 13, 14, résolue en 15 par D19) et « démo GUI non relancée » (répété 5 fois, jamais traité). `BLOCKERS.md` est resté vide malgré plusieurs causes inconnues.
+Ruled out: regressions (`make test` broke only once, `c5c0951`, fixed by the next commit), sessions too short (the 2 s and 52–61 s ones at the start came from the usage limit and from `pkill -f`, solved on Oct 26).
+Rediscovered every session: apples being thrown (sessions 11, 13, 14, solved in 15 by D19) and "GUI demo not rerun" (repeated 5 times, never handled). `BLOCKERS.md` stayed empty despite several unknown causes.
 
-## Points forts
-- Logique pure séparée des nœuds : 97–100 % de couverture sur `mission`, `route`, `localization`, `detector`, `coverage`, `tracker` ; tests rapides.
-- `e2e_mission.sh` recoupe le score avec Gazebo, produit des métriques et donne les poses des pommes perdues.
-- Décisions (D1–D20) et limites écrites honnêtement, causes établies par mesures.
-- Historique propre : commits petits, aucun secret, aucun fichier lourd (voir étape 5 du recadrage).
+## Strengths
+- Pure logic separated from nodes: 97–100 % coverage on `mission`, `route`, `localization`, `detector`, `coverage`, `tracker`; fast tests.
+- `e2e_mission.sh` cross-checks the score with Gazebo, produces metrics and gives the poses of lost apples.
+- Decisions (D1–D20) and limits written honestly, causes established by measurement.
+- Clean history: small commits, no secret, no heavy file.
 
-## Problèmes, du plus grave au moins grave
-**Critique**
-1. Pas de manipulation : ni bras, ni pince, ni contact. Le cœur du POC n'est pas simulé.
-2. Feuille de route sans critère, voir ci-dessus.
+## Problems, most severe first
+**Critical**
+1. No manipulation: no arm, no gripper, no contact. The core of the POC is not simulated.
+2. Roadmap without criteria, see above.
 
-**Élevé**
-3. Validation trop faible : seuil de 80 %, un run par seed, limite passée de 1200 à 1500 s selon les séries, `check_demo.sh` qui ne regarde que 14 s, pas de CI.
-4. Perception jamais mise en difficulté : aucun distracteur, éclairage fixe, 3–4 valeurs de teinte entre pomme orange et tronc, position exacte des arbres supposée connue.
-5. `mission.py` : classe unique de 667 lignes (303 à sa création), une quarantaine de paramètres, plus de 30 attributs d'état. Y ajouter le bras sans découpage la rendrait ingérable.
-6. Nœuds ROS à 0 % en test unitaire (`gripper`, `mission_node`, `localizer`, `apple_detector`), couverts seulement par l'e2e.
+**High**
+3. Weak validation: 80 % threshold, one run per seed, limit moved from 1200 to 1500 s between series, `check_demo.sh` looking at 14 s only, no CI.
+4. Perception never challenged: no distractor, fixed lighting, 3–4 hue values between orange apple and trunk, exact tree positions assumed known.
+5. `mission.py`: a single class of 667 lines (303 when created), about forty parameters, over 30 state attributes. Adding the arm without splitting it would make it unmanageable.
+6. ROS nodes at 0 % in unit tests (`gripper`, `mission_node`, `localizer`, `apple_detector`), covered only by e2e.
 
-**Moyen**
-7. Bug latent : `mission`, `localizer` et `mission_viz` lisent toujours `orchard.yaml` par défaut, les launch ne passent jamais `orchard_config`. Un verger avec d'autres arbres se désynchronise sans erreur (masqué : les 3 configs ont les mêmes arbres).
-8. Constantes dupliquées entre URDF, `CameraParams` et les nœuds (caméra, `offset` 0,46 m).
-9. `ANCHOR` s'active d'après le niveau de bruit passé au launch : le robot « connaît » la qualité de son GPS par configuration.
-10. Pile maison (contrôleur, EKF, A*) choisie parce que Nav2 et `robot_localization` ne sont pas installés, pas sur le fond.
+**Medium**
+7. Latent bug: `mission`, `localizer` and `mission_viz` always read the default `orchard.yaml`, launch files never pass `orchard_config`. An orchard with other trees gets out of sync with no error (hidden: the 3 configs share the same trees).
+8. Constants duplicated between URDF, `CameraParams` and nodes (camera, `offset` 0.46 m).
+9. `ANCHOR` is enabled from the noise level given to the launch file: the robot "knows" its GPS quality by configuration.
+10. Home-made stack (controller, EKF, A*) chosen because Nav2 and `robot_localization` are not installed, not on the merits.
 
-**Faible**
-11. Code de jalons dépassés : `apple_picker`, `waypoint_follower`, leurs launch et scripts ; import inutile dans `waypoint_follower.py`.
-12. Docs lourdes : PROGRESS 340 lignes (30 Ko) relues à chaque session, BILAN écrit « pour ce soir » et mal ordonné. Dockerfile jamais vérifié.
-13. `run_applepic.sh` : logs réduits au dernier message (impossible à diagnostiquer après coup), pas de pause après une erreur tardive (`code 1` à 495–503 s), heure limite déjà passée = sortie muette, pas de plafond par session, pas de verrou contre deux boucles, modifications locales jamais commitées.
+**Low**
+11. Code from superseded milestones: `apple_picker`, `waypoint_follower`, their launch files and scripts; unused import in `waypoint_follower.py`.
+12. Heavy docs: PROGRESS 340 lines (30 KB) reread each session, BILAN written "for tonight" and poorly ordered. Dockerfile never verified.
+13. `run_applepic.sh`: logs reduced to the last message (impossible to diagnose afterwards), no pause after a late error (`code 1` at 495–503 s), deadline already past = silent exit, no per-session limit, no lock against two loops, local changes never committed.
 
-## Recommandations
-**Garder** : architecture logique pure + nœuds, verger paramétrable, détection HSV, tracker, couverture, `e2e_mission.sh` et ses métriques, localisation GPS (telle quelle), règles de commit.
+## Recommendations
+**Keep:** pure logic + nodes architecture, configurable orchard, HSV detection, tracker, coverage, `e2e_mission.sh` and its metrics, GPS localization (as is), commit rules.
 
-**Refaire** :
-- la feuille de route, avec un critère vérifiable par jalon ;
-- `mission.py`, découpé avant d'ajouter le bras ;
-- le préhenseur : vrai bras, vraie pince, et `/odom` vérité terrain retiré du ramassage ;
-- D19 (roues traversant les pommes), à réévaluer une fois le bras en place ;
-- la validation : plusieurs runs par scénario, score médian, seuil relevé, `check_demo.sh` jusqu'au premier dépôt ;
-- `run_applepic.sh` et le format de PROGRESS / BILAN.
+**Redo:**
+- the roadmap, with a verifiable criterion per milestone;
+- `mission.py`, split before adding the arm;
+- the gripper: real arm, real fingers, ground-truth `/odom` removed from picking;
+- D19 (wheels going through apples), to reassess once the arm is in place;
+- validation: several runs per scenario, median score, higher threshold, `check_demo.sh` up to the first unload;
+- `run_applepic.sh` and the format of PROGRESS / BILAN.
 
-**Geler** : réglages GPS grossier et obstacles. Plus de travail dessus sans demande explicite ; le scénario sert de non-régression.
+**Freeze:** coarse-GPS and obstacle tuning. No more work on them without an explicit request; the scenario serves as a regression check.
 
-**Supprimer** : `apple_picker`, `waypoint_follower`, `picking.launch.py`, `navigation.launch.py`, `check_picking.sh`, `eval_picking.py`, `check_navigation.sh`, `plot_trajectory.py`, `build_route` et `approach_points` ; le Dockerfile s'il reste non vérifié.
+**Remove:** `apple_picker`, `waypoint_follower`, `picking.launch.py`, `navigation.launch.py`, `check_picking.sh`, `eval_picking.py`, `check_navigation.sh`, `plot_trajectory.py`, `build_route` and `approach_points`; the Dockerfile if it stays unverified.

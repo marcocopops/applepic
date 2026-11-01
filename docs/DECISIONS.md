@@ -1,278 +1,135 @@
-# Décisions
+# Decisions
 
-## D1 — Environnement d'exécution natif plutôt que Docker (session 1)
-- Contexte : Docker est utilisable sans sudo, mais ROS 2 Jazzy + gz Harmonic + ros_gz sont déjà
-  installés nativement ; il ne reste que ~13 Go libres sur le disque ; Docker n'a pas le runtime
-  NVIDIA, donc le rendu caméra en conteneur serait logiciel (lent/fragile). En natif, le rendu
-  headless GPU marche (vérifié).
-- Décision : workflow natif par défaut via `Makefile`. Un `docker/Dockerfile` léger
-  (ros-base + ros_gz) reste disponible (`USE_DOCKER=1`), non utilisé pour la vérification.
-- Écarté : `osrf/ros:jazzy-desktop-full` (taille disque, pas de GPU).
+## D1 — Native environment rather than Docker (session 1)
+- Context: Docker works without sudo, but ROS 2 Jazzy + gz Harmonic + ros_gz are already installed natively; only ~13 GB of disk is free; Docker has no NVIDIA runtime, so camera rendering in a container would be software (slow, fragile). Native headless GPU rendering works (verified).
+- Decision: native workflow by default through the `Makefile`. A light `docker/Dockerfile` (ros-base + ros_gz) stays available (`USE_DOCKER=1`), not used for verification.
+- Rejected: `osrf/ros:jazzy-desktop-full` (disk size, no GPU).
 
-## D2 — Tous les paquets en ament_python
-- Contexte : rien à compiler en C++ pour le POC.
-- Décision : `ament_python` partout, logique pure séparée des nœuds rclpy pour être testée avec pytest.
-- Écarté : ament_cmake pour description/gazebo (inutile, data_files suffit).
+## D2 — All packages `ament_python`
+- Context: nothing to compile in C++ for the POC.
+- Decision: `ament_python` everywhere, pure logic separated from rclpy nodes so that pytest can test it.
+- Rejected: ament_cmake for description/gazebo (useless, data_files is enough).
 
-## D3 — Monde du verger généré et versionné (session 2)
-- Contexte : M1 demande un monde paramétrable et reproductible.
-- Décision : `applepic_gazebo/orchard.py` (Python pur) génère `worlds/orchard.sdf` + un manifeste
-  vérité terrain `worlds/orchard_apples.yaml` depuis `config/orchard.yaml` (seed fixe). Les deux
-  fichiers générés sont commités (`make world` pour régénérer). 6 arbres en boucle, 4 à 7 pommes
-  par arbre dans un anneau 0,45–1,6 m, zone de dépôt bleue (visuel seul, sans collision) en (0,0).
-- Pommes = sphères dynamiques (r = 4 cm, 150 g) : stables au repos sur sol plan (vérifié), le robot
-  pourra les pousser. Plugins monde déjà inclus : UserCommands (suppression d'entité pour le
-  ramassage magique), Sensors ogre2, Imu, NavSat + `spherical_coordinates` (pour le GPS du M9).
-- Écarté : pommes statiques (irréaliste si le robot les touche), modèles Fuel (téléchargement réseau,
-  inutile pour HSV), herbe texturée (le vert uni suffit à la segmentation).
+## D3 — Orchard world generated and versioned (session 2)
+- Context: M1 asks for a configurable, reproducible world.
+- Decision: `applepic_gazebo/orchard.py` (pure Python) generates `worlds/orchard.sdf` + a ground-truth manifest `worlds/orchard_apples.yaml` from `config/orchard.yaml` (fixed seed). Both generated files are committed (`make world` regenerates them). 6 trees in a loop, 4 to 7 apples per tree in a 0.45–1.6 m ring, blue depot zone (visual only, no collision) at (0,0).
+- Apples are dynamic spheres (r = 4 cm, 150 g): stable at rest on flat ground (verified), the robot can push them. World plugins already included: UserCommands (entity removal for magic picking), Sensors ogre2, Imu, NavSat + `spherical_coordinates` (for the M9 GPS).
+- Rejected: static apples (unrealistic if touched), Fuel models (network download, useless for HSV), textured grass (plain green is enough for segmentation).
 
-## D4 — Robot et odométrie (session 3)
-- Contexte : M2, navigation en coordonnées monde d'abord.
-- Décision : `/odom` = OdometryPublisher gz (pose vérité terrain, repère `odom` ≡ monde, vérifié avec un
-  spawn hors origine) ; l'odométrie des roues du DiffDrive est publiée à part sur `/wheel_odom` (TF non
-  bridgée) pour le futur robot_localization. Caméra montée à 0,50 m, tilt 0,85 rad (~49°), HFOV 1,3 rad :
-  voit le sol d'environ 0,2 à 2,5 m devant ; le préhenseur apparaît en bas de l'image.
-  Préhenseur = simple frame `gripper_link` (le ramassage magique M5 se basera sur sa distance aux pommes).
-- Écarté : roues + gz_ros2_control (inutile pour un POC), panier physique avec collisions.
+## D4 — Robot and odometry (session 3)
+- Context: M2, navigation in world coordinates first.
+- Decision: `/odom` = gz OdometryPublisher (ground-truth pose, `odom` frame ≡ world, verified with an off-origin spawn); DiffDrive wheel odometry published separately on `/wheel_odom` (TF not bridged) for later localization. Camera at 0.50 m, tilt 0.85 rad (~49°), HFOV 1.3 rad: sees the ground about 0.2 to 2.5 m ahead; the gripper shows at the bottom of the image. Gripper = a plain `gripper_link` frame (M5 magic picking uses its distance to apples).
+- Rejected: gz_ros2_control (useless for this POC at the time), physical basket with collisions.
 
-## D5 — Navigation par contrôleur maison (session 4)
-- Contexte : M3, Nav2 non installé, monde plat sans obstacles autres que les troncs, pose vérité terrain.
-- Décision : `applepic_navigation/controller.py` (rotation sur place si erreur de cap > 0,6 rad, puis
-  avance proportionnelle à la distance, plafonnée à 0,5 m/s ; tolérance 0,15 m) + `route.py` qui
-  construit la boucle : un point d'approche par arbre à 2,2 m du tronc **côté intérieur de la boucle**
-  (vers le centroïde des arbres, donc hors de l'anneau de pommes ≤ 1,6 m), puis retour au dépôt ; tout
-  segment passant à moins de 2,0 m d'un tronc reçoit un point de détour (`via`). Le nœud
-  `waypoint_follower` lit les arbres dans `applepic_gazebo/config/orchard.yaml`.
-- Écarté : Nav2 (non installé, lourd pour une boucle de 6 points sur sol plat), pure pursuit
-  (inutile à cette échelle), carte d'occupation.
-- Conséquence pour M6 : la mission réutilisera `compute_command` pour aller aux pommes et aux points
-  de recherche ; le nœud `waypoint_follower` sert de démo/validation M3.
+## D5 — Home-made navigation controller (session 4)
+- Context: M3, Nav2 not installed, flat world with trunks as only obstacles, ground-truth pose.
+- Decision: `applepic_navigation/controller.py` (rotate in place if heading error > 0.6 rad, then forward speed proportional to distance, capped at 0.5 m/s; 0.15 m tolerance) + `route.py` building the loop: one approach point per tree, 2.2 m from the trunk **on the inside of the loop** (towards the centroid, outside the apple ring ≤ 1.6 m), then back to the depot; any segment passing within 2.0 m of a trunk gets a detour point (`via`). The `waypoint_follower` node reads trees from `applepic_gazebo/config/orchard.yaml`.
+- Rejected: Nav2 (not installed, heavy for 6 points on flat ground), pure pursuit (useless at this scale), occupancy map.
+- Consequence for M6: the mission reuses `compute_command` to reach apples and search points; `waypoint_follower` serves as the M3 demo.
 
-## D6 — Perception HSV + projection sur plan (session 5)
-- Contexte : M4, pommes rouges unies sur herbe verte, sol plat, pose caméra connue par TF (vérité terrain).
-- Décision : segmentation HSV (deux bandes de teinte autour du rouge, seuils S/V qui excluent le tronc
-  marron, teinte ≈ 18) + centroïde des blobs ; projection du centroïde sur le plan z = rayon de pomme
-  (0,04 m), ce qui approxime le centre de la sphère (erreur mesurée ≤ 1,5 cm). Blobs touchant le bord
-  de l'image ignorés (centroïde biaisé), portée max 4 m. Sortie en `geometry_msgs/PoseArray` (frame
-  `odom`), sans identité ni suivi : la fusion temporelle se fera côté M5/M6.
-- Écarté : détection de cercles (Hough, fragile avec l'ombrage), estimation de distance par le rayon
-  apparent (moins précise que la projection sur sol plat), message custom (PoseArray suffit, évite un
-  paquet ament_cmake d'interfaces).
+## D6 — HSV perception + plane projection (session 5)
+- Context: M4, plain red apples on green grass, flat ground, camera pose known through TF (ground truth).
+- Decision: HSV segmentation (two hue bands around red, S/V thresholds excluding the brown trunk, hue ≈ 18) + blob centroids; centroid projected onto the plane z = apple radius (0.04 m), approximating the sphere centre (measured error ≤ 1.5 cm). Blobs touching the image border are ignored (biased centroid), 4 m max range. Output as `geometry_msgs/PoseArray` (frame `odom`), without identity or tracking: temporal fusion belongs to M5/M6.
+- Rejected: circle detection (Hough, fragile with shading), distance from apparent radius (less precise than flat-ground projection), custom message (PoseArray is enough and avoids an ament_cmake interface package).
 
-## D7 — Ramassage magique par suppression d'entité, pose vérité terrain des pommes (session 6)
-- Contexte : M5, ramassage « magique » autorisé ; il faut savoir quand le préhenseur touche une pomme.
-- Décision : nœud `gripper` qui compare la position du préhenseur (`/odom` + 0,46 m dans l'axe) aux
-  poses **vérité terrain** des pommes lues sur le topic gz `/world/orchard/pose/info` ; sous 7 cm
-  (horizontal), il supprime le modèle via le service gz `/world/orchard/remove` (bindings Python
-  `gz.transport13` / `gz.msgs10` livrés avec Harmonic, pas de bridge à configurer) et incrémente le
-  panier. Ramassage automatique dès qu'une pomme est à portée (même en transit), refusé si panier plein ;
-  `/basket/unload` (std_srvs/Trigger) vide le panier, la mission décidera où l'appeler.
-  Le préhenseur dépasse de 6 cm l'avant du châssis : une pomme centrée est ramassée avant d'être touchée.
-- Côté décision : `apple_picker` fusionne les détections (`AppleTracker`) et approche avec
-  `approach.py` (robot face à la pomme à 0,46 m), finissant en aveugle sur la position mémorisée quand
-  la pomme sort du champ caméra.
-- Écarté : DetachableJoint (il faut une articulation par pomme déclarée dans le SDF, et une pomme
-  attachée resterait visible devant la caméra), position estimée par la caméra pour déclencher
-  (la vérité terrain simule un capteur de contact du préhenseur), `ros_gz_sim remove`/`delete_entity`
-  en sous-processus (lent, et `remove` boucle s'il ne trouve pas de monde).
+## D7 — Magic picking by entity removal, ground-truth apple poses (session 6)
+- Context: M5, "magic" picking allowed; the robot must know when the gripper touches an apple.
+- Decision: `gripper` node comparing the gripper position (`/odom` + 0.46 m along the axis) with **ground-truth** apple poses from the gz topic `/world/orchard/pose/info`; under 7 cm (horizontal) it removes the model through the gz service `/world/orchard/remove` (Python bindings `gz.transport13` / `gz.msgs10` shipped with Harmonic, no bridge) and increments the basket. Automatic pick whenever an apple is in reach (even in transit), refused when full; `/basket/unload` (std_srvs/Trigger) empties the basket, called by the mission. The gripper sticks out 6 cm ahead of the chassis: a centred apple is picked before being touched.
+- Decision side: `apple_picker` fuses detections (`AppleTracker`) and approaches with `approach.py` (robot facing the apple at 0.46 m), finishing blind on the remembered position once the apple leaves the camera view.
+- Rejected: DetachableJoint (needs one joint per apple declared in the SDF, and an attached apple would stay visible to the camera), triggering from the camera estimate (ground truth simulates a contact sensor), `ros_gz_sim remove`/`delete_entity` as a subprocess (slow, and `remove` loops if it finds no world).
 
-## D8 — Machine à états de mission pure + motif de recherche en cercle (session 7)
-- Contexte : M6, enchaîner arbres, recherche, ramassage, dépôt et vidage ; transitions testables sans ROS.
-- Décision : classe pure `applepic_mission.mission.Mission` (états GOTO_TREE, SEARCH, PICK, GOTO_BASE,
-  UNLOAD, DONE) qui reçoit des événements (`on_detections`, `on_picked`, `on_basket_full`,
-  `on_unloaded`) et renvoie la commande vitesse à chaque `step(pose, t)` ; le nœud `mission` n'est
-  qu'un adaptateur ROS (il remplace `apple_picker`, gardé pour la démo M5).
-  - SEARCH : 8 points sur un cercle de 2,2 m autour du tronc (départ au plus proche du robot), à
-    chacun le robot se tourne vers le tronc et regarde 1,5 s ; le champ caméra (0,4–2,3 m devant)
-    couvre alors l'anneau de pommes (0,45–1,6 m) côté robot. Déplacements entre points en gardant
-    1,9 m du tronc (le châssis ne roule pas sur l'anneau).
-  - PICK : pomme confirmée (`AppleTracker`, 2 vues) à < 1,9 m du tronc courant, la plus proche, et
-    seulement si l'approche en ligne droite garde la base à ≥ 0,45 m de l'axe du tronc (arrêt à
-    ≥ 0,5 m) ; sinon elle sera prise depuis un autre point du cercle. Après chaque ramassage, le
-    robot revient au point de recherche courant et regarde à nouveau.
-  - Un ramassage signalé sur `/basket/picked` est associé à la piste la plus proche du préhenseur
-    (gère les pommes ramassées « en passant »).
-  - Panier plein → GOTO_BASE puis retour au même arbre (recherche recommencée) ; fin de boucle →
-    GOTO_BASE → UNLOAD → nouvelle boucle ou DONE (`loops`, 0 = infini).
-- Écarté : Nav2/BehaviorTree (non installé, surdimensionné), spirale ou rotation sur place depuis
-  l'arbre (plus de risque d'écraser les pommes), SMACH/YASMIN (dépendance de plus pour 6 états).
+## D8 — Pure mission state machine + circular search pattern (session 7)
+- Context: M6, chain trees, search, picking, depot and unloading; transitions testable without ROS.
+- Decision: pure class `applepic_mission.mission.Mission` (states GOTO_TREE, SEARCH, PICK, GOTO_BASE, UNLOAD, DONE) receiving events (`on_detections`, `on_picked`, `on_basket_full`, `on_unloaded`) and returning the velocity command at each `step(pose, t)`; the `mission` node is only a ROS adapter (it replaces `apple_picker`, kept for the M5 demo).
+  - SEARCH: 8 points on a 2.2 m circle around the trunk (starting closest to the robot); at each one the robot faces the trunk and looks for 1.5 s; the camera view (0.4–2.3 m ahead) then covers the apple ring (0.45–1.6 m) on the robot side. Moves between points keep 1.9 m from the trunk (the chassis does not drive over the ring).
+  - PICK: confirmed apple (`AppleTracker`, 2 views) within 1.9 m of the current trunk, nearest first, only if the straight approach keeps the base ≥ 0.45 m from the trunk axis (stop ≥ 0.5 m); otherwise it is picked from another circle point. After each pick the robot goes back to the current search point and looks again.
+  - A pick reported on `/basket/picked` is matched to the track nearest the gripper (handles apples picked "in passing").
+  - Basket full → GOTO_BASE then back to the same tree (search restarted); end of loop → GOTO_BASE → UNLOAD → new loop or DONE (`loops`, 0 = forever).
+- Rejected: Nav2/BehaviorTree (not installed, oversized), spiral or spin in place from the tree (more risk of crushing apples), SMACH/YASMIN (one more dependency for 6 states).
 
-## D9 — Scénario de bout en bout M7 accéléré par RTF (session 8)
-- Contexte : une boucle de mission dure ~15 min simulées ; il faut un test M7 chronométré,
-  reproductible et rapide à relancer.
-- Décision : `scripts/e2e_mission.sh` (cible `make e2e`) lance la mission headless (1 boucle, départ
-  au dépôt) et règle le facteur temps réel à 3 via le service gz `/world/orchard/set_physics`
-  (le rendu caméra plafonne vers ~4 sur cette machine). Le chronométrage est en **temps simulé**
-  (depuis la première transition de la mission), limite 1200 s, seuil de pommes déposées 80 %.
-  Score calculé par le module pur `applepic_mission/metrics.py` (testé par pytest) : PASS si mission
-  DONE, ratio atteint, dans la limite, gz interrogé, pommes signalées ramassées absentes de gz et
-  compteurs cohérents. Sorties `artifacts/e2e_metrics.json` + tracé `e2e_trajectory.png`.
-  Remplace `check_mission.sh` / `eval_mission.py`.
-- Écarté : launch_testing (plus lourd à déboguer, pas de gain ici) ; chronométrage en temps réel
-  (dépend de la charge machine) ; RTF illimité (`real_time_factor: 0`) : capteurs caméra moins
-  réguliers, mission non vérifiée dans ce mode.
+## D9 — M7 end-to-end scenario sped up by RTF (session 8)
+- Context: one mission loop lasts ~15 simulated minutes; M7 needs a timed, reproducible, quick scenario.
+- Decision: `scripts/e2e_mission.sh` (`make e2e`) runs the headless mission (1 loop, starting at the depot) and sets the real-time factor to 3 through the gz service `/world/orchard/set_physics` (camera rendering caps around 4 on this machine). Timing in **simulated time** (from the first mission transition), 1200 s limit, 80 % deposited-apple threshold. Score from the pure module `applepic_mission/metrics.py` (tested): PASS if mission DONE, ratio reached, within limit, gz queried, picked apples absent from gz and counters consistent. Outputs `artifacts/e2e_metrics.json` + `e2e_trajectory.png`. Replaces `check_mission.sh` / `eval_mission.py`.
+- Rejected: launch_testing (heavier to debug, no gain here); real-time timing (depends on machine load); unlimited RTF (`real_time_factor: 0`): irregular camera sensors, mission not verified in that mode.
 
-## D10 — Démo M8 : launch dédié + nœud de visualisation (session 9)
-- Contexte : l'humain doit pouvoir regarder la mission ; RViz n'a rien à afficher du verger
-  (pas de carte) et la mission ne publie que des états texte.
-- Décision : `demo.launch.py` inclut `mission.launch.py` (GUI Gazebo par défaut) + RViz
-  (`rviz/demo.rviz`, repère fixe `odom` ≡ monde) + nœud `mission_viz` (`applepic_mission`) qui publie
-  `~/markers` (troncs, couronnes, cercles de recherche, dépôt, étiquettes depuis `orchard.yaml`,
-  texte d'état au-dessus du robot) et `~/path` (trajectoire décimée à 5 cm, depuis `/odom`). Logique
-  pure dans `viz.py` (testée). Argument `rtf` pour accélérer via `/world/orchard/set_physics`
-  (défaut 1 : la GUI suit sans difficulté). Vérification automatique headless :
-  `scripts/check_demo.sh` (contenu des topics RViz pendant la mission).
-- Écarté : afficher les pommes réelles (vérité terrain) dans RViz (ce serait tricher visuellement
-  sur la perception) ; plugin RViz personnalisé pour le HUD (texte 3D suffisant) ;
-  enregistrement vidéo automatique (pas d'outil de capture d'écran installé, pas de Xvfb).
+## D10 — M8 demo: dedicated launch + visualization node (session 9)
+- Context: the human must be able to watch the mission; RViz has nothing to show of the orchard (no map) and the mission only publishes text states.
+- Decision: `demo.launch.py` includes `mission.launch.py` (Gazebo GUI by default) + RViz (`rviz/demo.rviz`, fixed frame `odom` ≡ world) + `mission_viz` node (`applepic_mission`) publishing `~/markers` (trunks, canopies, search circles, depot, labels from `orchard.yaml`, state text above the robot) and `~/path` (trajectory decimated to 5 cm, from `/odom`). Pure logic in `viz.py` (tested). `rtf` argument to speed up through `/world/orchard/set_physics` (default 1: the GUI keeps up). Automatic headless check: `scripts/check_demo.sh` (RViz topic contents during the mission).
+- Rejected: showing real apples (ground truth) in RViz (visual cheating on perception); custom RViz HUD plugin (3D text is enough); automatic video recording (no screen capture tool, no Xvfb).
 
-## D11 — Recherche guidée par la couverture caméra (session 10)
-- Contexte : une boucle prenait 888 s simulées, dont 531 s en SEARCH (8 points fixes par arbre,
-  même quand tout était déjà vu). L'empreinte réelle de la caméra au sol, calculée depuis l'URDF,
-  est 0,44–1,69 m devant la base (et non 0,4–2,3 m comme supposé en session 7) : 8 vues fixes à
-  2,2 m ne couvrent que ~75 % de la couronne où tombent les pommes ; c'est en roulant vers les
-  pommes que le reste était vu.
-- Décision : module pur `coverage.py` : empreinte = projection des coins de l'image (réduite à
-  85 % : marge pour les blobs coupés au bord) sur le plan des pommes ; grille 10 cm de la couronne
-  0,4–1,7 m autour de chaque tronc, marquée à chaque tick en SEARCH/PICK (occultation par le tronc
-  incluse). La mission saute les points dont la vue ajouterait < 1 % de la couronne, quitte l'arbre
-  dès 98 % vus, sauf s'il reste une piste active (même vue une seule fois) près de l'arbre ; une fois
-  le cercle fini, jusqu'à 3 vues « de complément » (meilleur gain parmi 24 positions × 3 caps sur le
-  cercle, gain ≥ 2 %). Cercle ramené à 2,0 m (le bout de l'empreinte atteint le tronc), regard 1,0 s,
-  rotation vers le tronc à 1,2 rad/s. Réglage choisi par balayage dans un simulateur unicycle
-  (9 vergers, 304 pommes) puis vérifié dans Gazebo : 656 s au lieu de 888 s, 29/29.
-- Écarté : arrêter après N points sans nouvelle pomme (aucune garantie de couverture) ; planificateur
-  « next-best-view » complet (plus lent à mettre au point, gain marginal mesuré) ; seuils plus
-  agressifs (couverture 90–95 %, gain 3–4 %) : 600–620 s mais 1 à 8 pommes perdues sur 304 ;
-  rouler plus près des troncs (risque de pousser les pommes avec le châssis).
+## D11 — Search driven by camera coverage (session 10)
+- Context: one loop took 888 simulated seconds, 531 s of it in SEARCH (8 fixed points per tree, even when everything was already seen). The real camera ground footprint, computed from the URDF, is 0.44–1.69 m ahead of the base (not 0.4–2.3 m as assumed in session 7): 8 fixed views at 2.2 m only cover ~75 % of the ring where apples fall; the rest was seen while driving to apples.
+- Decision: pure module `coverage.py`: footprint = projection of the image corners (reduced to 85 %: margin for blobs cut at the border) onto the apple plane; 10 cm grid of the 0.4–1.7 m ring around each trunk, marked at every tick in SEARCH/PICK (trunk occlusion included). The mission skips points whose view would add < 1 % of the ring, leaves the tree at 98 % seen, unless an active track (even seen once) remains near the tree; once the circle is done, up to 3 "fill-in" views (best gain among 24 positions × 3 headings on the circle, gain ≥ 2 %). Circle reduced to 2.0 m (the footprint end reaches the trunk), 1.0 s look, rotation to the trunk at 1.2 rad/s. Settings chosen by a sweep in a unicycle simulator (9 orchards, 304 apples), then verified in Gazebo: 656 s instead of 888 s, 29/29.
+- Rejected: stopping after N points without a new apple (no coverage guarantee); full next-best-view planner (slower to develop, marginal measured gain); more aggressive thresholds (90–95 % coverage, 3–4 % gain): 600–620 s but 1 to 8 apples lost out of 304; driving closer to trunks (risk of pushing apples with the chassis).
 
-## D12 — Robustesse multi-seeds : couverture complète, châssis relevé, pas de pivot sur une pomme (session 11)
-- Contexte : `make e2e` sur d'autres vergers (seeds 7, 123, 2024 ; mêmes arbres, autres pommes)
-  passait (≥ 80 %) mais laissait 1 à 3 pommes. Deux causes distinctes, établies par les poses
-  finales des pommes dans gz et le rejeu de la trajectoire :
-  1. **Pommes jamais vues** (restées à leur place) : l'arbre était quitté à 94–98 % de couverture.
-     Depuis le cercle à 2,0 m face au tronc, l'empreinte (0,48–1,44 m devant) laisse deux zones
-     aveugles : pied du tronc (r < 0,6 m) et bord de la couronne (r ≈ 1,5–1,7 m) ; les vues de
-     complément (gain ≥ 2 %) ne les rattrapaient pas.
-  2. **Pommes poussées ou éjectées** (retrouvées à 60–160 m) : le bas du châssis était à 5 cm, une
-     pomme fait 8 cm ; surtout, en pivotant sur place vers une pomme passée sous le châssis, la
-     roulette avant lui roulait dessus et le moteur physique la projetait.
-- Décision :
-  - Couverture : cercle 1,9 m, objectif 99,5 %, vues de complément jusqu'à 4 avec gain ≥ 0,5 %,
-    candidates sur 3 rayons (1,75 / 1,9 / 2,1 m) × 24 positions × 5 caps. Choisi par balayage
-    unicycle sur 20 vergers générés (640 pommes) avec un faux détecteur strict (exactement
-    l'empreinte planifiée) : 7 pommes perdues → 0, mais +13 % de temps de mission.
-  - Robot : garde au sol 10 cm (le châssis passe au-dessus des pommes ; caméra et préhenseur,
-    définis par rapport à `base_footprint`, inchangés).
-  - Approche : si la pomme est à moins de `offset + 0,1 m` de la base et mal alignée, le robot
-    s'en éloigne en ligne droite avant de pivoter (la roulette balaie un cercle de 0,32 m).
-  - Préhenseur : la requête gz `remove` via le binding Python gz-transport garde le GIL pendant
-    son attente : tout le nœud (flux de poses gz, `/odom`) gelait jusqu'à 3 s par ramassage, la
-    réponse expirait souvent (alors que gz supprimait la pomme) et la mission abandonnait la pomme
-    suivante. Désormais : `gz service` lancé en sous-processus depuis un thread ; la pomme est
-    comptée dès qu'elle disparaît du flux de poses (ou à la réponse positive), relance possible
-    après `remove_timeout + confirm_timeout` si elle est toujours là. Le préhenseur publie aussi
-    `/basket/picked_point` (position de la pomme ramassée), que la mission utilise pour retirer la
-    bonne piste : avec la position courante du préhenseur, une confirmation tardive retirait la
-    piste visée suivante (pomme laissée au sol, cas observé avec seed 42).
-- Écarté : supprimer les collisions pommes/robot (masquerait un vrai problème de conception) ;
-  préhenseur « magique » à plus grande portée (idem) ; garder 98 % (plus rapide, pommes perdues).
+## D12 — Multi-seed robustness: full coverage, raised chassis, no pivot over an apple (session 11)
+- Context: `make e2e` on other orchards (seeds 7, 123, 2024; same trees, other apples) passed (≥ 80 %) but left 1 to 3 apples. Two distinct causes, established from final apple poses in gz and trajectory replay:
+  1. **Apples never seen** (still in place): the tree was left at 94–98 % coverage. From the 2.0 m circle facing the trunk, the footprint (0.48–1.44 m ahead) leaves two blind zones: trunk foot (r < 0.6 m) and ring edge (r ≈ 1.5–1.7 m); fill-in views (gain ≥ 2 %) did not catch them.
+  2. **Apples pushed or thrown** (found 60–160 m away): the chassis bottom was at 5 cm, an apple is 8 cm tall; above all, when pivoting towards an apple that had passed under the chassis, the front caster rolled on it and the physics engine launched it.
+- Decision:
+  - Coverage: 1.9 m circle, 99.5 % goal, up to 4 fill-in views with gain ≥ 0.5 %, candidates on 3 radii (1.75 / 1.9 / 2.1 m) × 24 positions × 5 headings. Chosen by a unicycle sweep on 20 generated orchards (640 apples) with a strict fake detector (exactly the planned footprint): 7 apples lost → 0, but +13 % mission time.
+  - Robot: 10 cm ground clearance (the chassis passes above apples; camera and gripper, defined relative to `base_footprint`, unchanged).
+  - Approach: if the apple is closer than `offset + 0.1 m` to the base and misaligned, the robot drives straight away from it before pivoting (the caster sweeps a 0.32 m circle).
+  - Gripper: the gz `remove` request through the Python gz-transport binding holds the GIL while waiting: the whole node (gz pose stream, `/odom`) froze up to 3 s per pick, the reply often timed out (although gz removed the apple) and the mission gave up the next apple. Now: `gz service` as a subprocess from a thread; the apple counts as soon as it leaves the pose stream (or on a positive reply), retry possible after `remove_timeout + confirm_timeout` if still there. The gripper also publishes `/basket/picked_point` (position of the picked apple), used by the mission to retire the right track: with the current gripper position, a late confirmation retired the next targeted track (apple left on the ground, seen with seed 42).
+- Rejected: removing apple/robot collisions (would hide a real design problem); longer-range magic gripper (same); keeping 98 % (faster, apples lost).
 
-## D13 — GPS simulé + localisation maison (EKF sur map → odom), gyroscope pour le cap (session 12)
-- Contexte : M9 « GPS simulé bruité + robot_localization ». robot_localization n'est pas installé
-  (pas de sudo). Le bruit du capteur gz NavSat s'exprime **en degrés** (σ = 1 → ~100 km, mesuré),
-  identique en latitude et longitude (donc anisotrope en mètres), et n'est pas reproductible.
-- Décision :
-  - Capteur gz `navsat` sans bruit (`/gps/raw`) + nœud `gps_noise` : bruit blanc + biais
-    Gauss-Markov (σ, τ), isotrope en mètres, avec seed. Défaut : RTK (σ = 2 cm, sans biais), comme les
-    robots tondeuses du commerce.
-  - Nœud `localizer` : EKF à 3 états sur la transformation map → odom (et non sur la pose), mise à jour
-    par chaque fix GPS (porte de Mahalanobis), prédiction = dérive odométrique (variance ∝ distance,
-    angle, temps). Cap initial connu (robot à quai au dépôt, arg `yaw`). Après 20 fixes rejetés de
-    suite, redémarrage sur le fix courant.
-  - Odométrie : vitesse des roues + **gyroscope** (capteur gz IMU, bruit + biais, seed par
-    `gz sim --seed`). Mesuré : les roues sous-estiment de **7 %** les pivots sur place (glissement) ;
-    sans gyroscope, le cap dérivait de 0,3 rad en 100 s et le filtre divergeait (10 m, 24/29 pommes).
-  - Un seul contrat pour les consommateurs : `/localization/odom` (repère `map`) et TF
-    `map → odom → base_footprint`, quel que soit le mode (`localization:=truth` publie l'identité et
-    republie la vérité terrain). Le préhenseur « magique » garde la vérité terrain (c'est la physique).
-- Écarté : robot_localization (non installé ; à reconsidérer si l'humain l'installe, cf. TODO_HUMAIN) ;
-  bruit gz en degrés (anisotrope, non reproductible) ; filtre sur la pose complète (même résultat,
-  mais l'offset map → odom donne directement la TF standard REP-105) ; magnétomètre (le gyroscope suffit
-  avec les corrections GPS).
+## D13 — Simulated GPS + home-made localization (EKF on map → odom), gyroscope for heading (session 12)
+- Context: M9 "noisy simulated GPS + robot_localization". robot_localization is not installed (no sudo). The gz NavSat sensor noise is expressed **in degrees** (σ = 1 → ~100 km, measured), identical in latitude and longitude (hence anisotropic in metres), and not reproducible.
+- Decision:
+  - Noise-free gz `navsat` sensor (`/gps/raw`) + `gps_noise` node: white noise + Gauss-Markov bias (σ, τ), isotropic in metres, seeded. Default: RTK (σ = 2 cm, no bias), like commercial robot mowers.
+  - `localizer` node: 3-state EKF on the map → odom transform (not on the pose), updated by each GPS fix (Mahalanobis gate), prediction = odometric drift (variance ∝ distance, angle, time). Known initial heading (robot docked at the depot, `yaw` argument). After 20 rejected fixes in a row, restart on the current fix.
+  - Odometry: wheel speed + **gyroscope** (gz IMU sensor, noise + bias, seeded by `gz sim --seed`). Measured: wheels under-measure in-place pivots by **7 %** (slip); without the gyroscope, the heading drifted 0.3 rad in 100 s and the filter diverged (10 m, 24/29 apples).
+  - A single contract for consumers: `/localization/odom` (`map` frame) and TF `map → odom → base_footprint`, whatever the mode (`localization:=truth` publishes the identity and republishes the ground truth). The "magic" gripper keeps the ground truth (it is the physics).
+- Rejected: robot_localization (not installed; reconsider if the human installs it); gz noise in degrees (anisotropic, not reproducible); filter on the full pose (same result, but the map → odom offset directly gives the standard REP-105 TF); magnetometer (gyroscope is enough with GPS corrections).
 
-## D14 — Pommes ancrées au repère odométrique (session 12)
-- Contexte : avec un GPS biaisé (σ 0,3 m + biais 0,3 m), l'estimation map → odom bouge pendant
-  l'approche d'une pomme : la pomme redétectée tombait hors de la porte d'association (0,15 m) →
-  pistes fantômes, 8 abandons, 27/29.
-- Décision : le nœud mission applique chaque changement de map → odom à toutes les pistes (et aux
-  comptes rendus de ramassage tardifs), via `localization.map_shift`. La géométrie robot ↔ pomme est
-  alors purement odométrique, insensible au GPS ; l'arbre, le cercle de recherche et la couverture
-  restent en repère map. Le préhenseur publie le point ramassé relativement au robot
-  (`base_footprint`, horodaté au déclenchement) et la mission le replace avec sa propre estimation.
-- Résultat : même scénario → 29/29, 0 abandon.
-- Écarté : tout faire en repère odom (arbres et couverture en dériveraient) ; élargir la porte
-  d'association (fusionnerait des pommes voisines).
-- Limite mesurée : avec un GPS « grand public » (σ 0,5 m + biais 1 m), la recherche autour des arbres
-  est décalée de 1 à 2 m → zones marquées « vues » sans l'avoir été, 23/29 (FAIL). Il faudrait du RTK,
-  ou recaler la pose sur les troncs vus par la caméra.
+## D14 — Apples anchored to the odometry frame (session 12)
+- Context: with a biased GPS (σ 0.3 m + 0.3 m bias), the map → odom estimate moves while approaching an apple: the re-detected apple fell outside the association gate (0.15 m) → ghost tracks, 8 give-ups, 27/29.
+- Decision: the mission node applies each map → odom change to all tracks (and to late pick reports), through `localization.map_shift`. Robot ↔ apple geometry is then purely odometric, insensitive to GPS; the tree, search circle and coverage stay in the map frame. The gripper publishes the picked point relative to the robot (`base_footprint`, stamped at trigger time) and the mission places it with its own estimate.
+- Result: same scenario → 29/29, 0 give-ups.
+- Rejected: everything in the odom frame (trees and coverage would drift); wider association gate (would merge nearby apples).
+- Measured limit: with a "consumer" GPS (σ 0.5 m + 1 m bias), the search around trees is shifted by 1 to 2 m → zones marked "seen" that were not, 23/29 (FAIL). This needs RTK, or correcting the pose on trunks seen by the camera.
 
-## D15 — Recalage de la pose sur les troncs vus par la caméra (session 13)
-- Contexte : GPS « grand public » (σ 0,5 m + biais 1 m) → 23/29, recherche décalée de 1 à 2 m (D14). La
-  caméra regarde le sol : seul le pied du tronc est visible, et il est juste hors champ depuis le cercle
-  de recherche (1,9 m).
-- Décision :
-  - Détection du pied : ajustement d'un cercle de rayon connu sur l'arête basse du blob marron projetée
-    au sol (non biaisé vu de côté, contrairement au centroïde), points de silhouette écartés.
-  - EKF : même modèle de mesure que le GPS, le point mesuré étant le tronc. Association à l'arbre le plus
-    proche (< 2,8 m ; arbres à 6 m). Innovation improbable → covariance gonflée, pas de rejet : un biais GPS
-    rend le filtre trop confiant, et le tronc est la mesure fiable.
-  - Nouvel état `ANCHOR` à l'arrivée à chaque arbre : face au tronc, avance lente (≤ 1,2 m, arrêt à 0,7 m
-    estimé), regard à ± 0,8 rad, puis SEARCH même sans recalage. Actif seulement si σ ou biais > 0,1 m
-    (constaté : avec RTK, 27/29 et 806 s contre 29/29 et 723 s sans).
-- Écarté : réduire le cercle de recherche ou relever la caméra (réglages de couverture et perception à
-  refaire) ; modéliser le biais GPS comme état du filtre (plus complexe, à reconsidérer pour réduire l'erreur
-  entre deux arbres).
-- Résultat : 84/87 pommes sur 3 seeds de bruit (≥ 27/29 chacun), au prix de ~20–30 % de temps en plus.
+## D15 — Pose correction on trunks seen by the camera (session 13)
+- Context: "consumer" GPS (σ 0.5 m + 1 m bias) → 23/29, search shifted by 1 to 2 m (D14). The camera looks at the ground: only the trunk foot is visible, and it is just out of view from the search circle (1.9 m).
+- Decision:
+  - Foot detection: fit a circle of known radius on the lower edge of the brown blob projected on the ground (unbiased from the side, unlike the centroid), silhouette points discarded.
+  - EKF: same measurement model as GPS, the measured point being the trunk. Association to the nearest tree (< 2.8 m; trees are 6 m apart). Unlikely innovation → inflated covariance, no rejection: a GPS bias makes the filter overconfident, and the trunk is the reliable measurement.
+  - New `ANCHOR` state on arrival at each tree: facing the trunk, slow creep (≤ 1.2 m, stop at 0.7 m estimated), look at ± 0.8 rad, then SEARCH even without a fix. Active only if σ or bias > 0.1 m (seen: with RTK, 27/29 and 806 s versus 29/29 and 723 s without).
+- Rejected: smaller search circle or raised camera (coverage and perception settings to redo); GPS bias as a filter state (more complex, reconsider to reduce the error between trees).
+- Result: 84/87 apples over 3 noise seeds (≥ 27/29 each), at the cost of ~20–30 % more time.
 
-## D16 — Verger difficile séparé, herbe seulement visuelle (session 14)
-- Contexte : M9 « herbe haute, pommes cachées ou abîmées ». Le verger par défaut sert de référence de non-régression.
-- Décision : config à part `orchard_hard.yaml`, aux mêmes positions de pommes (tirages d'apparence sur un générateur
-  aléatoire distinct). Brins d'herbe sans collision : le robot les traverse. Bande rouge élargie à 0–14 et troncs
-  remontés à 15 (teintes rendues mesurées : pomme orange 12, tronc 18). Fermeture morphologique de 7 px.
-- Écarté : modifier le verger par défaut (perdrait la comparaison) ; herbe en collision (coût physique, sans intérêt pour
-  la caméra) ; apprentissage (YOLO) : la couleur suffit encore sur ce monde.
-- Limite : marge de teinte de 3–4 valeurs entre pomme orange et tronc ; deux pommes à moins de 7 px fusionnent.
+## D16 — Separate hard orchard, grass only visual (session 14)
+- Context: M9 "tall grass, hidden or damaged apples". The default orchard serves as the regression reference.
+- Decision: separate config `orchard_hard.yaml`, same apple positions (appearance drawn from a distinct random generator). Grass blades without collision: the robot drives through them. Red band widened to 0–14 and trunks raised to 15 (measured rendered hues: orange apple 12, trunk 18). 7 px morphological closing.
+- Rejected: modifying the default orchard (would lose the comparison); colliding grass (physics cost, no use for the camera); machine learning (YOLO): colour is still enough on this world.
+- Limit: 3–4 hue values between orange apple and trunk; two apples less than 7 px apart merge.
 
-## D17 — Pare-chocs à contact et recul (session 14)
-- Contexte : en GPS grossier, l'erreur de pose peut mener le robot dans un tronc ; il y restait indéfiniment (20/29).
-- Décision : capteur de contact gz sur le châssis et sur une bande plus large que les roues, comme sur les robots tondeuses
-  du commerce. Tout contact hors sol et pommes déclenche un recul de 2 s (avancée si toujours bloqué), puis l'abandon de la
-  pomme ou de la vue visée. Délai de 40 s sur les vues de SEARCH en secours. Le plugin Contact est dans le monde.
-- Écarté : capteurs sur les roues (touchent toujours le sol : 2000 messages/s sur `/bumper`) ; délai seul (40 s perdues à
-  chaque choc, et le robot continue de pousser) ; détection de patinage (les roues glissent sans signal fiable).
-- Limite : le choc n'améliore pas la pose, et la pomme visée est perdue pour la boucle.
+## D17 — Contact bumper and backing off (session 14)
+- Context: in coarse GPS, the pose error can lead the robot into a trunk; it stayed there forever (20/29).
+- Decision: gz contact sensor on the chassis and on a strip wider than the wheels, like commercial robot mowers. Any contact other than ground and apples triggers a 2 s reverse (forward if still stuck), then gives up the targeted apple or view. 40 s timeout on SEARCH views as a safety net. The Contact plugin is in the world.
+- Rejected: sensors on wheels (always touching the ground: 2000 messages/s on `/bumper`); timeout alone (40 s lost at each hit, and the robot keeps pushing); slip detection (wheels slip with no reliable signal).
+- Limit: a bump does not improve the pose, and the targeted apple is lost for the loop.
 
-## D18 — Obstacles inconnus mémorisés au contact (session 15)
-- Contexte : le pare-chocs (D17) reculait puis repartait sans rien retenir. La caméra regarde le sol et ne détecte pas d'obstacle.
-- Décision : aucune perception nouvelle. Le bord du pare-chocs dans le sens de marche a touché, position latérale inconnue : 3 points sur
-  sa largeur sont mémorisés, ancrés à l'odométrie comme les pommes. Dégagement 0,7 m en trajet (rayon de pivot 0,5 m), 0,55 m en approche de
-  pomme. Choc à moins de 0,5 m d'un tronc connu : c'est ce tronc, rien n'est mémorisé. Choc en pivot : rien non plus (direction inconnue).
-  Pomme ou vue interrompue : un second essai. En transit, à partir du 2ᵉ choc : pas de côté de 1, 2, 3 m, puis de l'autre côté ; au
-  8ᵉ choc, l'arbre est abandonné pour que la mission finisse.
-- Écarté : position du contact donnée par gz (repère monde, il faudrait la vérité terrain) ; un seul point droit devant (19 chocs au
-  1ᵉʳ run) ; pas de côté alterné à chaque choc (allers-retours constatés en simulation unicycle) ; Nav2 + carte de coût (non installé).
-- Limite : l'abandon d'arbre coûte cher en GPS grossier (18/29 sur un seed). Revu en D20 (pas de côté supprimé, arbre reporté).
+## D18 — Unknown obstacles remembered on contact (session 15)
+- Context: the bumper (D17) backed off then left without remembering anything. The camera looks at the ground and detects no obstacle.
+- Decision: no new perception. The bumper edge in the direction of travel touched, lateral position unknown: 3 points across its width are remembered, anchored to odometry like apples. 0.7 m clearance when travelling (0.5 m pivot radius), 0.55 m when approaching an apple. A bump within 0.5 m of a known trunk is that trunk: nothing remembered. Bump while pivoting: nothing either (unknown direction). Interrupted apple or view: one more try. In transit, from the 2nd bump: sidestep of 1, 2, 3 m, then on the other side; at the 8th bump the tree is given up so the mission ends.
+- Rejected: contact position from gz (world frame, would need ground truth); a single point straight ahead (19 bumps in the first run); alternating sidestep at each bump (back-and-forth seen in unicycle simulation); Nav2 + costmap (not installed).
+- Limit: giving up a tree costs a lot in coarse GPS (18/29 on one seed). Revised in D20 (sidestep removed, tree put off).
 
-## D19 — Roues et roulette traversent les pommes (session 15)
-- Contexte : pommes éjectées à des dizaines de mètres au contact des roues, depuis la session 11 malgré plusieurs contournements.
-- Décision : `collide_bitmask` 0x01 sur roues et roulette, 0x02 sur les pommes. Le sol garde le masque par défaut, le châssis passe au-dessus (10 cm).
-- Écarté : réglages de contact `max_vel`/`kp` (non essayés, prise en charge incertaine avec le moteur physique par défaut) ; interdire le recul
-  au-dessus d'une pomme connue (ne couvre pas les pommes non vues).
-- Limite : le robot ne pousse ni n'écrase plus aucune pomme : un vrai robot le ferait.
+## D19 — Wheels and caster go through apples (session 15)
+- Context: apples thrown tens of metres on wheel contact, since session 11 despite several workarounds.
+- Decision: `collide_bitmask` 0x01 on wheels and caster, 0x02 on apples. The ground keeps the default mask, the chassis passes above (10 cm).
+- Rejected: contact settings `max_vel`/`kp` (not tried, uncertain support with the default physics engine); forbidding reversing over a known apple (does not cover unseen apples).
+- Limit: the robot neither pushes nor crushes any apple: a real robot would.
 
-## D20 — Recherche sur grille autour des points de choc, arbre reporté (session 16)
-- Contexte : rafales de chocs au même endroit, qui épuisaient le compteur et faisaient perdre des arbres. Cause : le contournement d'un tronc ramenait le trajet à travers l'obstacle touché.
-- Décision : A* 8-connexe sur grille de 20 cm, seulement si le contournement existant passe à moins de 0,7 m d'un point mémorisé. Dégagements réduits à 0,7 m (tronc) et 0,55 m (contact) si aucun chemin, ancien trajet en dernier recours. Une zone contenant le départ ou l'arrivée est réduite à cette distance. Pas de côté supprimé : chaque choc ajoute des points, donc le trajet suivant change. Arbre non atteint après 8 chocs : reporté en fin de boucle, abandonné au 2ᵉ échec.
-- Écarté : A* pour tous les trajets (changerait les trajets du verger sans obstacle, sans gain) ; compter les chocs par obstacle (traite le symptôme) ; Nav2 + carte de coût (non installé) ; pare-chocs segmenté (les contacts relevés sont déjà sur le bord avant mémorisé).
-- Limite : le report n'a pas encore servi dans un run gz, seulement en test unitaire.
+## D20 — Grid search around bump points, tree put off (session 16)
+- Context: bursts of bumps at the same spot, exhausting the counter and losing trees. Cause: going around a trunk brought the path back through the obstacle just hit.
+- Decision: 8-connected A* on a 20 cm grid, only if the existing detour passes within 0.7 m of a remembered point. Clearances reduced to 0.7 m (trunk) and 0.55 m (contact) if there is no path, old path as a last resort. A zone containing the start or goal is reduced to that distance. Sidestep removed: each bump adds points, so the next path changes. Tree not reached after 8 bumps: put off to the end of the loop, given up on the 2nd failure.
+- Rejected: A* for all paths (would change obstacle-free orchard paths, no gain); counting bumps per obstacle (treats the symptom); Nav2 + costmap (not installed); segmented bumper (recorded contacts are already on the remembered front edge).
+- Limit: putting off a tree has not yet been used in a gz run, only in a unit test.
+
+## D21 — Re-scoping (2026-11-01, human decisions)
+- Context: audit in `docs/AUDIT.md`: no arm, milestone M9+ without criteria, sessions drifting towards coarse-GPS tuning.
+- Decision: real arm and two-finger gripper through MoveIt 2, apple attached on contact of both fingers (replaces D7 at M20). Priorities: arm, demo, then perception. HSV kept and measured on scenes with traps. Done means M23. Navigation frozen. Repo in English, Apache-2.0.
+- Decided by the audit session: a custom arm with at least 4 joints rather than an imported model (it must fit the chassis and reach the ground, and needs no download); `KICKOFF.md` and `run_applepic.sh` stay public (no secrets, they show how the project was built).
+- Rejected: friction-only grasping (long, unstable contact tuning on a sphere); YOLO (torch, 13 GB of free disk, several sessions, not needed before HSV is measured); Nav2.
