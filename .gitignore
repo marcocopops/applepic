@@ -1,17 +1,35 @@
+# colcon workspace
 build/
 install/
 log/
+
+# Autonomous loop (docs/ai-workflow/run_applepic.sh): session logs and stop flag
 logs/
+STOP
+
+# Generated worlds, metrics, plots and captures
+artifacts/
+
+# Python
 __pycache__/
 *.pyc
-.pytest_cache/
-artifacts/
 *.egg-info/
-STOP
-prompt_recadrage.md
-*.swp
+.pytest_cache/
+.coverage*
+.venv/
+
+# Recordings and datasets (too large to commit)
 *.db3
 *.mcap
 rosbag2_*/
 datasets/
-.coverage*
+*.mp4
+*.mkv
+*.webm
+*.avi
+docs/media/src/
+
+# Editors
+*.swp
+.vscode/
+.idea/
