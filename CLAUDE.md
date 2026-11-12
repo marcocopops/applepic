@@ -51,8 +51,9 @@ Audit: `docs/ai-workflow/audit.md`. Architecture overview: `docs/architecture.md
   M8 demo (Gazebo GUI + RViz, `mission_viz` node: `/mission_viz/markers|path`)
 - `scripts/check_demo.sh [timeout rtf]`: headless demo without RViz, checks markers/HUD/trajectory.
   **Today it stops after ~14 simulated seconds: it proves little until M10.**
-- Capture a window (no Xvfb/ImageMagick): `DISPLAY=:1 xwd -id <win>` (id from `xwininfo -root -tree`), then decode XWD
-  in Python (PIL cannot read XWD). The decoder used so far produced striped images: not usable as is.
+- README visuals, headless (no Xvfb/ImageMagick/ffmpeg here): `scripts/record_media.py` runs the mission with extra gz
+  cameras (overview, depot, chase camera following the robot) into `artifacts/media_raw/` (~8 min wall), then
+  `scripts/make_media.py --gif-start 2 --gif-end 178 --gif-step 1.5` writes `docs/media/demo.gif` and the stills.
 - `ros2 launch applepic_bringup mission.launch.py [headless:=false capacity:=10 loops:=1]`: sim + detection + mission
 - `ros2 launch applepic_bringup navigation.launch.py loops:=1 [headless:=false]`: sim + loop following
 - `scripts/capture_camera.py out.png`: save an image from `/camera/image_raw` (sim running)
