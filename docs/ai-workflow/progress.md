@@ -17,7 +17,10 @@ Keep this file under 40 lines. Older entries go to the "Done" section of `docs/r
   trap scenes; done means M23.
 
 ## Publication
-- `LICENSE`, public `README.md`, `.gitignore` done. History scan: no secret and no heavy file. A personal email found in old `package.xml` and `setup.py` versions was removed by a history rewrite the human approved. Nothing pushed, no remote.
+- 2026-11-01: `LICENSE`, `.gitignore`, history scan; a personal email in old `package.xml`/`setup.py` versions was removed by a history rewrite the human approved.
+- 2026-11-12 (interactive): docs reorganized (`docs/architecture.md`, `decisions.md`, `roadmap.md`, `media/`, `ai-workflow/`),
+  README rewritten with visuals rendered headless (`scripts/record_media.py`, `make_media.py`), CI for build + unit tests.
+  gitleaks on the full history: no leak. Measured: 29/29 (719 s, 725 s), hard orchard 29/29 (739 s), coarse GPS 28/29 (889 s).
 
 ## Next milestone: M10 — Validation series
 See `docs/ai-workflow/KICKOFF.md`. M10 to M13 need no installation. M14 onward needs `docs/ai-workflow/human-actions.md`.
