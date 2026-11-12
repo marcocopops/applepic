@@ -2,8 +2,8 @@
 
 You work ALONE, with no human available, in the current folder (the ApplePic repo).
 A script restarts you in a loop: each session starts with an empty context.
-Your memory between sessions is the repo (`CLAUDE.md`, `docs/PROGRESS.md`, `docs/BLOCKERS.md`,
-`docs/DECISIONS.md`) and the git history.
+Your memory between sessions is the repo (`CLAUDE.md`, `docs/ai-workflow/progress.md`, `docs/ai-workflow/blockers.md`,
+`docs/decisions.md`) and the git history.
 
 ## The project
 
@@ -31,19 +31,19 @@ robot_localization, YOLO or datasets, battery, friction grasping, CI, speeding u
 ## Autonomy rules (mandatory)
 
 1. NEVER ask a question or wait for validation. Decide yourself, take the simplest option that works, and
-   record each non-trivial decision in `docs/DECISIONS.md` (short: context / decision / rejected options).
+   record each non-trivial decision in `docs/decisions.md` (short: context / decision / rejected options).
 2. NEVER use `sudo`. Change nothing outside this folder, except Docker images, Python virtual environments
    and package caches. NEVER `git push`, configure a remote, or send anything to the Internet other than
    downloading packages.
-3. Anything needing a human action goes in `docs/TODO_HUMAIN.md` with the exact command.
-4. Stuck for about 45 minutes on one problem: write it in `docs/BLOCKERS.md` (symptom, what you tried,
+3. Anything needing a human action goes in `docs/ai-workflow/human-actions.md` with the exact command.
+4. Stuck for about 45 minutes on one problem: write it in `docs/ai-workflow/blockers.md` (symptom, what you tried,
    leads). A cause you could not establish goes there too, not only in PROGRESS.
 5. Never rewrite git history. Small, frequent commits, conventional commits format.
 6. NEVER use `pkill -f`, `killall` or `kill` on a name pattern: you could kill your own process. Stop
    processes by PID or PGID.
-7. Never modify `KICKOFF.md` or `run_applepic.sh`.
+7. Never modify `docs/ai-workflow/KICKOFF.md` or `docs/ai-workflow/run_applepic.sh`.
 8. Never relax a milestone criterion, a threshold or a time limit to make a check pass. If a criterion
-   turns out to be wrong or impossible, write why in `docs/BLOCKERS.md` and leave it for the human.
+   turns out to be wrong or impossible, write why in `docs/ai-workflow/blockers.md` and leave it for the human.
 9. **No polishing.** Work only on the next milestone below. If no useful and verifiable task remains, or if
    every remaining milestone is blocked, create `STOP` containing one line with the reason, commit what is
    done, and end the session. Refactoring, tuning, extra scenarios and doc rewording outside a milestone are
@@ -51,7 +51,7 @@ robot_localization, YOLO or datasets, battery, friction grasping, CI, speeding u
 
 ## Session protocol
 
-1. Read `CLAUDE.md`, `docs/PROGRESS.md`, `docs/BLOCKERS.md` and `git log --oneline -20`.
+1. Read `CLAUDE.md`, `docs/ai-workflow/progress.md`, `docs/ai-workflow/blockers.md` and `git log --oneline -20`.
 2. Take the first milestone not done in the roadmap. If it is blocked by a human action, take the next one
    that does not depend on it; if there is none, apply rule 9.
 3. Implement it. A milestone is done only when its criterion was actually run and passed, on the final code.
@@ -59,14 +59,15 @@ robot_localization, YOLO or datasets, battery, friction grasping, CI, speeding u
 4. Keep simulation time under control: a single e2e run (~5 min) while developing, a series only to validate
    the milestone. Do not start a series of more than 45 min. Results are not deterministic: one run proves
    nothing about a before/after gain.
-5. Commit. Update `docs/PROGRESS.md` (at most 40 lines: state, last milestone with measured values, next
-   milestone; older entries go to `docs/HISTORY.md`, one to three lines per milestone). Commit.
+5. Commit. Update `docs/ai-workflow/progress.md` (at most 40 lines: state, last milestone with measured values, next
+   milestone; older entries go to the "Done" section of `docs/roadmap.md`, one to three lines per milestone,
+   and the milestone is ticked in its "Next" section). Commit.
 6. End the session after one milestone, or earlier if your context gets heavy. A milestone that fails for
-   two sessions in a row goes to `docs/BLOCKERS.md`, then move to the next one that does not depend on it.
+   two sessions in a row goes to `docs/ai-workflow/blockers.md`, then move to the next one that does not depend on it.
 
 ## Roadmap
 
-M0 to M9 are done (see `docs/HISTORY.md`). Each milestone below is validated headless.
+M0 to M9 are done (see `docs/roadmap.md`). Each milestone below is validated headless.
 `e2e series` means `scripts/e2e_series.sh`, created by M10.
 
 ### Foundations
@@ -90,7 +91,7 @@ M0 to M9 are done (see `docs/HISTORY.md`). Each milestone below is validated hea
   *Criterion:* `mission.py` at most 400 lines; `test_mission.py` passes with import changes only; a series of
   3 runs of the default orchard reports median 29/29.
 
-### Arm and gripper (needs the install listed in `docs/TODO_HUMAIN.md`)
+### Arm and gripper (needs the install listed in `docs/ai-workflow/human-actions.md`)
 - **M14 — Dependency check.** `scripts/check_arm_deps.sh` exits 0 only if MoveIt, ros2_control and
   gz_ros2_control are found. *Criterion:* the script exits 0. If it does not, M15 to M20 are blocked.
 - **M15 — Arm in the URDF.** Arm on the front of the chassis with at least 4 joints (base yaw, shoulder,
@@ -123,10 +124,10 @@ M0 to M9 are done (see `docs/HISTORY.md`). Each milestone below is validated hea
 ### Demo
 - **M21 — Demo video.** RViz markers and HUD show the arm. `scripts/record_demo.py` renders a simulation camera
   to `artifacts/demo.mp4` (OpenCV, no display, no ffmpeg) over one full tree, plus a GIF under 5 MB in
-  `docs/images/`, referenced by the README.
+  `docs/media/`, referenced by the README.
   *Criterion:* the script checks at least 60 s of video, at least 3 picks during the recording (from
-  `/mission/stats`) and a pixel difference between frames. `docs/TODO_HUMAIN.md` lists one GUI check
-  (`make demo`) for the human; the 1-in-9 silent start in `docs/BLOCKERS.md` is reproduced or closed by a
+  `/mission/stats`) and a pixel difference between frames. `docs/ai-workflow/human-actions.md` lists one GUI check
+  (`make demo`) for the human; the 1-in-9 silent start in `docs/ai-workflow/blockers.md` is reproduced or closed by a
   series of 10 headless starts, all reaching a first mission transition.
 
 ### Perception
@@ -134,11 +135,11 @@ M0 to M9 are done (see `docs/HISTORY.md`). Each milestone below is validated hea
   fallen leaves, three lighting settings) and `scripts/eval_perception.py` measuring precision and recall per
   lighting against the manifest, from captured images. Improve the detector (shape, size) only as needed.
   *Criterion:* recall at least 95 % and precision at least 90 % in each lighting. If not reached after two
-  sessions, write the measured limit in the README and in `docs/BLOCKERS.md`, then go on.
+  sessions, write the measured limit in the README and in `docs/ai-workflow/blockers.md`, then go on.
 
 ### End
 - **M23 — POC validation.** e2e series on 3 orchards (seeds 42, 7, 123) x 3 runs, GPS RTK, with the arm.
   *Criterion (definition of done):* median at least 90 % of apples deposited by the gripper, no run under 80 %,
   at most 1800 s simulated. Results in `docs/RESULTS.md`, README updated. Then create `STOP` with
   "POC validated" and end the session. If the criterion fails, write the measured values in
-  `docs/BLOCKERS.md` and create `STOP` with the reason.
+  `docs/ai-workflow/blockers.md` and create `STOP` with the reason.

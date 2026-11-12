@@ -2,8 +2,9 @@
 
 Simulated proof of concept of an apple-picking robot (differential base ~60x45 cm, camera, basket,
 "magic" gripper until M20 replaces it with a MoveIt arm and a real two-finger gripper).
-Roadmap and full instructions: `KICKOFF.md`. Memory between sessions: `docs/PROGRESS.md` (state + next
-milestone), `docs/BLOCKERS.md`, `docs/DECISIONS.md`, `docs/HISTORY.md`, git log. Audit: `docs/AUDIT.md`.
+Roadmap and full instructions: `docs/ai-workflow/KICKOFF.md`. Memory between sessions: `docs/ai-workflow/progress.md`
+(state + next milestone), `docs/ai-workflow/blockers.md`, `docs/decisions.md`, `docs/roadmap.md` (done / next), git log.
+Audit: `docs/ai-workflow/audit.md`. Architecture overview: `docs/architecture.md`.
 
 ## Environment
 - Ubuntu 24.04, ROS 2 **Jazzy** + **gz Harmonic (gz sim 8)** installed natively in `/opt/ros/jazzy`.
@@ -17,7 +18,7 @@ milestone), `docs/BLOCKERS.md`, `docs/DECISIONS.md`, `docs/HISTORY.md`, git log.
 - Pose for all nodes: `/localization/odom` (`map` frame) + TF `map → odom → base_footprint`, published by
   `localizer` (`localization:=truth`: truth + identity; `gps`: EKF on GPS + wheels + gyro).
   Only the magic gripper reads `/odom` (ground truth).
-- Not installed: MoveIt planners and config tools, ros2_controllers, gz_ros2_control (see `docs/TODO_HUMAIN.md`, needed from M14);
+- Not installed: MoveIt planners and config tools, ros2_controllers, gz_ros2_control (see `docs/ai-workflow/human-actions.md`, needed from M14);
   Nav2 and robot_localization (out of scope).
 
 ## Commands
@@ -58,8 +59,9 @@ milestone), `docs/BLOCKERS.md`, `docs/DECISIONS.md`, `docs/HISTORY.md`, git log.
 - Stop a sim running in the background: by PGID (`set -m` then `kill -INT -- -$PID`), never by pattern.
   `set -m` must run BEFORE the `... &` line (not inside the backgrounded chain), otherwise `$!` is not the PGID.
 - Manual shell: `source /opt/ros/jazzy/setup.bash && source install/setup.bash`
-- Autonomous loop: `./run_applepic.sh [HH:MM]`. It refuses to start while `STOP` exists; it stops on `STOP`, at the
-  deadline, or after two sessions without a commit. Logs are `stream-json` in `logs/`.
+- Autonomous loop: `docs/ai-workflow/run_applepic.sh [HH:MM]` (works from any folder; `logs/` and `STOP` stay at the
+  repo root). It refuses to start while `STOP` exists; it stops on `STOP`, at the deadline, or after two sessions
+  without a commit. Logs are `stream-json` in `logs/`.
 
 ## Layout
 - `src/applepic_description`: robot URDF/xacro
@@ -72,12 +74,14 @@ milestone), `docs/BLOCKERS.md`, `docs/DECISIONS.md`, `docs/HISTORY.md`, git log.
   footprint + per-tree coverage grid), `mission.py` (pure state machine) and `mission` node (`/mission/state|status|stats`),
   `viz.py` + `mission_viz` node (demo RViz markers)
 - `src/applepic_bringup`: top-level launch files
+- `docs/`: `architecture.md`, `decisions.md`, `roadmap.md`, `media/` (README images); `docs/ai-workflow/`: autonomous-loop
+  files (KICKOFF, runner, progress, blockers, human actions, audit)
 All packages are `ament_python`. Pure logic (no rclpy) lives in separate modules testable by pytest with no ROS running.
 
 ## Conventions
 - Everything in the repo is in English: code, names, comments, docs, README, commits.
 - Small, frequent conventional commits; never rewrite history; never push.
-- No sudo. Human actions → `docs/TODO_HUMAIN.md`.
+- No sudo. Human actions → `docs/ai-workflow/human-actions.md`.
 - Navigation and coarse-GPS tuning are frozen: no work on them outside a roadmap milestone.
 
 ## Verify

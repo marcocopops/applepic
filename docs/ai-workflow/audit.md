@@ -30,7 +30,7 @@ Measured from `logs/runner.log` and git: 22 launches, 10.6 h of sessions, 52 com
 7. **No loop since Oct 30 23:37.** `STOP` is still present: `run_applepic.sh` would exit immediately.
 
 Ruled out: regressions (`make test` broke only once, `258fb8a`, fixed by the next commit), sessions too short (the 2 s and 52–61 s ones at the start came from the usage limit and from `pkill -f`, solved on Oct 26).
-Rediscovered every session: apples being thrown (sessions 11, 13, 14, solved in 15 by D19) and "GUI demo not rerun" (repeated 5 times, never handled). `BLOCKERS.md` stayed empty despite several unknown causes.
+Rediscovered every session: apples being thrown (sessions 11, 13, 14, solved in 15 by D19) and "GUI demo not rerun" (repeated 5 times, never handled). `blockers.md` stayed empty despite several unknown causes.
 
 ## Strengths
 - Pure logic separated from nodes: 97–100 % coverage on `mission`, `route`, `localization`, `detector`, `coverage`, `tracker`; fast tests.

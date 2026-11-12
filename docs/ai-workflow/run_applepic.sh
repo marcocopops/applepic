@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Run Claude Code in a loop on KICKOFF.md until the deadline, a STOP file, or two sessions without a commit.
+# Run Claude Code in a loop on docs/ai-workflow/KICKOFF.md until the deadline, a STOP file, or two sessions without a commit.
 # Failed or very short sessions usually mean the usage limit was reached: wait, then retry.
+# Run from anywhere: it works at the repository root (logs/ and STOP live there).
 
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/../.." || exit 1
 mkdir -p logs
 
 exec 9> logs/.lock
@@ -17,7 +18,7 @@ if [ -f STOP ]; then
   exit 0
 fi
 
-DEADLINE_HOUR="${1:-23:30}"                      # e.g. ./run_applepic.sh 22:00
+DEADLINE_HOUR="${1:-23:30}"                      # e.g. docs/ai-workflow/run_applepic.sh 22:00
 MAX_SESSION="${MAX_SESSION:-3h}"                 # a session stuck longer than this is killed
 DEADLINE=$(date -d "today $DEADLINE_HOUR" +%s)
 # A deadline already past today means tomorrow.
@@ -26,7 +27,7 @@ echo "Deadline: $(date -d "@$DEADLINE" '+%a %H:%M')" | tee -a logs/runner.log
 
 # Deliberately short prompt: it shows up in the command line of the claude process. With all of
 # KICKOFF.md as an argument, a "pkill -f gz" or "pkill -f ros2" run by Claude killed Claude (code 143).
-PROMPT="Read the file KICKOFF.md at the root of this folder and follow its instructions to the letter."
+PROMPT="Read the file docs/ai-workflow/KICKOFF.md in this folder and follow its instructions to the letter."
 i=0
 no_commit=0
 reason="deadline reached"

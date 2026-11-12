@@ -1,5 +1,32 @@
 # Decisions
 
+Design decisions, one per entry: context, decision, rejected options and known limits.
+New entries are appended by the autonomous sessions (see [`ai-workflow/`](ai-workflow/)).
+
+| # | Topic | Decision in one line |
+|---|---|---|
+| D1 | Environment | Native ROS 2 Jazzy + gz Harmonic; Docker optional |
+| D2 | Packages | All `ament_python`, pure logic separated from nodes |
+| D3 | World | Orchard SDF generated from YAML, apple manifest as ground truth |
+| D4 | Robot | Ground-truth `/odom`, wheel odometry apart, tilted camera |
+| D5 | Navigation | Home-made point controller and tree loop (no Nav2) |
+| D6 | Perception | HSV segmentation + projection on the flat ground |
+| D7 | Picking | Magic gripper: apple removed from gz within 7 cm (ground truth) |
+| D8 | Mission | Pure state machine, search circle around each tree |
+| D9 | Testing | Headless end-to-end scenario at 3x real time, scored against gz |
+| D10 | Demo | Dedicated launch file + RViz marker node |
+| D11 | Search | Driven by a camera coverage grid (888 s → 656 s) |
+| D12 | Robustness | Full coverage, raised chassis, no pivot over an apple |
+| D13 | Localization | Simulated GPS + home-made EKF on `map → odom`, gyro for heading |
+| D14 | Localization | Apples anchored to the odometry frame |
+| D15 | Localization | Pose corrected on tree trunks seen by the camera |
+| D16 | Perception | Separate hard orchard, grass only visual |
+| D17 | Safety | Contact bumper and backing off |
+| D18 | Obstacles | Unknown obstacles remembered on contact |
+| D19 | Physics | Wheels and caster do not collide with apples |
+| D20 | Obstacles | A* around bump points, unreachable tree put off |
+| D21 | Scope | Real arm + gripper through MoveIt 2; navigation frozen |
+
 ## D1 — Native environment rather than Docker (session 1)
 - Context: Docker works without sudo, but ROS 2 Jazzy + gz Harmonic + ros_gz are already installed natively; only ~13 GB of disk is free; Docker has no NVIDIA runtime, so camera rendering in a container would be software (slow, fragile). Native headless GPU rendering works (verified).
 - Decision: native workflow by default through the `Makefile`. A light `docker/Dockerfile` (ros-base + ros_gz) stays available (`USE_DOCKER=1`), not used for verification.
@@ -129,7 +156,7 @@
 - Limit: putting off a tree has not yet been used in a gz run, only in a unit test.
 
 ## D21 — Re-scoping (2026-11-01, human decisions)
-- Context: audit in `docs/AUDIT.md`: no arm, milestone M9+ without criteria, sessions drifting towards coarse-GPS tuning.
+- Context: audit in `docs/ai-workflow/audit.md`: no arm, milestone M9+ without criteria, sessions drifting towards coarse-GPS tuning.
 - Decision: real arm and two-finger gripper through MoveIt 2, apple attached on contact of both fingers (replaces D7 at M20). Priorities: arm, demo, then perception. HSV kept and measured on scenes with traps. Done means M23. Navigation frozen. Repo in English, Apache-2.0.
 - Decided by the audit session: a custom arm with at least 4 joints rather than an imported model (it must fit the chassis and reach the ground, and needs no download); `KICKOFF.md` and `run_applepic.sh` stay public (no secrets, they show how the project was built).
 - Rejected: friction-only grasping (long, unstable contact tuning on a sphere); YOLO (torch, 13 GB of free disk, several sessions, not needed before HSV is measured); Nav2.

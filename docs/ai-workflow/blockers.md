@@ -1,7 +1,7 @@
 # Blockers and unexplained issues
 
 ## Waiting for the human
-- M14 to M20 need the install in `docs/TODO_HUMAIN.md`.
+- M14 to M20 need the install in `docs/ai-workflow/human-actions.md`.
 
 ## Unexplained, not being worked on
 - **Silent GUI demo start** (session 14): 1 GUI launch out of 9 had no mission transition for 90 s. Not reproduced in 6 cold

@@ -8,7 +8,7 @@ sudo apt install --no-install-recommends ros-jazzy-moveit ros-jazzy-gz-ros2-cont
 About 13 GB of disk was free on 2026-11-01. Then start the loop:
 ```bash
 rm STOP
-./run_applepic.sh 23:30
+docs/ai-workflow/run_applepic.sh 23:30
 ```
 
 ## Publishing (when you decide to)
